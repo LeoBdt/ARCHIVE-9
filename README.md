@@ -1,52 +1,48 @@
 # ARCHIVE-9
 
-Une IA d'archivage pour Discord. Elle observe les salons qu'on lui confie, apprend à connaître chaque membre, garde une fiche sur chacun et parle quand elle le juge utile.
+An archiving AI for Discord. It watches the channels it is given, gets to know each member, keeps a profile on everyone and speaks when it sees fit.
 
 ## Structure
 
 ```
 apps/
-  bot/        process Discord
+  bot/        Discord process
 packages/
-  core/       types et règles du domaine, sans I/O
-  db/         schéma Drizzle, migrations, accès à la base
-  config/     tsconfig et ESLint partagés
+  core/       domain types and rules, no I/O
+  db/         Drizzle schema, migrations, database access
+  config/     shared tsconfig and ESLint
 docker/       Dockerfiles
-docs/         architecture et déploiement
+docs/         architecture and deployment
 ```
 
-## Développement
+## Development
 
-Prérequis : Node 24 ou plus, pnpm, Docker.
+Requirements: Node 24+, pnpm, Docker.
 
 ```sh
 pnpm install
 docker run -d --name archive9-pg -e POSTGRES_USER=archive9 -e POSTGRES_PASSWORD=change-me \
   -e POSTGRES_DB=archive9 -p 5432:5432 postgres:18-alpine
-cp .env.example .env   # renseigner DISCORD_TOKEN et DISCORD_GUILD_ID
+cp .env.example .env   # set DISCORD_TOKEN and DISCORD_GUILD_ID
 pnpm dev:bot
 ```
 
-| Commande | Rôle |
+| Command | Description |
 |---|---|
 | `pnpm lint` | ESLint |
-| `pnpm typecheck` | TypeScript sur tous les paquets |
-| `pnpm test` | Vitest (les tests de base de données demandent `TEST_DATABASE_URL`) |
-| `pnpm test:coverage` | Vitest avec couverture |
-| `pnpm db:generate --name <nom>` | Nouvelle migration après une modification du schéma |
+| `pnpm typecheck` | TypeScript across all packages |
+| `pnpm test` | Vitest (database tests need `TEST_DATABASE_URL`) |
+| `pnpm test:coverage` | Vitest with coverage |
+| `pnpm db:generate --name <name>` | New migration after a schema change |
 
-Le code TypeScript est exécuté directement par Node, sans étape de build.
+TypeScript runs directly on Node, with no build step.
 
-## Contribuer
+## Contributing
 
-- Commits au format [Conventional Commits](https://www.conventionalcommits.org/fr/).
-- `main` est protégée : passage par une PR, avec les jobs `check`, `secrets` et `image` au vert.
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
+- `main` is protected: changes go through a PR, with the `check`, `secrets` and `image` jobs passing.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Déploiement](docs/DEPLOY.md)
-
-## Crédits
-
-Plusieurs idées viennent de [Jean Pascal](https://github.com/Bluzzi/Discord-AI-Bot), avec l'accord de son auteur.
+- [Deployment](docs/DEPLOY.md)

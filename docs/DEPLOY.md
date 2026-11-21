@@ -1,71 +1,71 @@
-# Déploiement
+# Deployment
 
-Cible : un serveur Linux amd64 avec Docker, et Portainer ou `docker compose`.
+Target: a Linux amd64 server with Docker, and Portainer or `docker compose`.
 
-## 1. Application Discord
+## 1. Discord application
 
-1. Créer une application sur le [portail développeur Discord](https://discord.com/developers/applications).
-2. Onglet **Bot** : générer le token (`DISCORD_TOKEN`) et activer les intents privilégiés **Server Members** et **Message Content**.
-3. Onglet **OAuth2 > URL Generator** : scopes `bot` et `applications.commands`, puis les permissions :
+1. Create an application in the [Discord developer portal](https://discord.com/developers/applications).
+2. **Bot** tab: generate the token (`DISCORD_TOKEN`) and enable the **Server Members** and **Message Content** privileged intents.
+3. **OAuth2 > URL Generator** tab: scopes `bot` and `applications.commands`, then these permissions:
    - View Channels
    - Send Messages
    - Send Messages in Threads
    - Read Message History
    - Add Reactions
    - Embed Links
-4. Ouvrir l'URL générée pour inviter le bot sur le serveur.
+4. Open the generated URL to invite the bot to the server.
 
-Ne jamais accorder au rôle du bot : Administrator, Ban Members, Kick Members, Moderate Members, Manage Messages, Manage Server, Manage Roles avec des permissions sensibles.
+Never grant the bot's role: Administrator, Ban Members, Kick Members, Moderate Members, Manage Messages, Manage Server, or Manage Roles with sensitive permissions.
 
-`DISCORD_GUILD_ID` s'obtient en activant le mode développeur de Discord, puis clic droit sur le serveur > Copier l'identifiant.
+To get `DISCORD_GUILD_ID`, enable Discord's developer mode, then right-click the server > Copy Server ID.
 
 ## 2. Image
 
-La CI publie `ghcr.io/<owner>/archive-9-bot` à chaque push sur `main`. Après la première publication, passer le paquet en **public** dans les réglages du paquet sur GitHub. Sinon, il faut configurer un accès au registre dans Portainer et dans WUD.
+The CI publishes `ghcr.io/<owner>/archive-9-bot` on every push to `main`. After the first publish, set the package to **public** in its GitHub settings. Otherwise, registry credentials must be configured in Portainer and WUD.
 
 ## 3. Variables
 
-Partir de [`.env.example`](../.env.example).
+Start from [`.env.example`](../.env.example).
 
-| Variable | Rôle |
+| Variable | Description |
 |---|---|
-| `BOT_IMAGE` | image du bot, par exemple `ghcr.io/<owner>/archive-9-bot:latest` |
-| `DISCORD_TOKEN` | token du bot |
-| `DISCORD_GUILD_ID` | ID du serveur |
-| `KNOWN_AI_BOT_IDS` | ID des autres bots IA, séparés par des virgules |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | base de données ; le mot de passe ne contient que des lettres et des chiffres, car il est inséré dans une URL |
-| `BACKUP_KEEP_DAYS` | durée de conservation des sauvegardes (7 par défaut) |
-| `WUD_PORT` | port de l'interface WUD (3000 par défaut) |
-| `WUD_ADMIN_USER`, `WUD_ADMIN_PASSWORD` | compte admin de WUD |
-| `WUD_SESSION_SECRET` | 32 caractères aléatoires minimum (`openssl rand -hex 32`) |
-| `LOG_LEVEL` | `info` par défaut |
+| `BOT_IMAGE` | bot image, e.g. `ghcr.io/<owner>/archive-9-bot:latest` |
+| `DISCORD_TOKEN` | bot token |
+| `DISCORD_GUILD_ID` | server ID |
+| `KNOWN_AI_BOT_IDS` | IDs of the other AI bots, comma separated |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | database; the password must only contain letters and digits since it goes into a URL |
+| `BACKUP_KEEP_DAYS` | backup retention (default 7) |
+| `WUD_PORT` | WUD web UI port (default 3000) |
+| `WUD_ADMIN_USER`, `WUD_ADMIN_PASSWORD` | WUD admin account |
+| `WUD_SESSION_SECRET` | at least 32 random characters (`openssl rand -hex 32`) |
+| `LOG_LEVEL` | defaults to `info` |
 
 ## 4. Portainer
 
-1. **Stacks > Add stack**, nom `archive-9`.
-2. Coller le contenu de [`docker-compose.yml`](../docker-compose.yml) dans l'éditeur web.
-3. Dans **Environment variables**, passer en mode avancé et coller les variables.
+1. **Stacks > Add stack**, name it `archive-9`.
+2. Paste [`docker-compose.yml`](../docker-compose.yml) into the web editor.
+3. Under **Environment variables**, switch to advanced mode and paste the variables.
 4. **Deploy the stack**.
 
-Au premier démarrage, le bot applique les migrations, puis se connecte à Discord.
+On first start, the bot applies migrations, then logs in to Discord.
 
-## 5. Mises à jour
+## 5. Updates
 
-WUD surveille uniquement les conteneurs qui portent le label `wud.watch=true`, c'est-à-dire `bot`. Une nouvelle image `latest` sur GHCR entraîne la recréation automatique du conteneur.
+WUD only watches containers labelled `wud.watch=true`, i.e. `bot`. A new `latest` image on GHCR makes it recreate the container automatically.
 
-`postgres` n'est jamais mis à jour automatiquement. Un changement de version majeure se fait à la main, par sauvegarde puis restauration.
+`postgres` is never updated automatically. Major version upgrades are done by hand, through a backup and restore.
 
-L'interface de WUD (port `WUD_PORT`) a accès au socket Docker : elle ne doit pas être exposée sur Internet.
+The WUD UI (port `WUD_PORT`) has access to the Docker socket: never expose it to the internet.
 
-## 6. Sauvegardes
+## 6. Backups
 
-Les dumps sont dans le volume `backups`, au format `archive9-AAAA-MM-JJ.dump`.
+Dumps live in the `backups` volume, named `archive9-YYYY-MM-DD.dump`.
 
-Restauration :
+Restore:
 
 ```sh
 docker cp archive9-2026-01-01.dump archive-9-postgres-1:/tmp/restore.dump
 docker exec archive-9-postgres-1 pg_restore -U archive9 -d archive9 --clean --if-exists /tmp/restore.dump
 ```
 
-Copier régulièrement ce volume hors du serveur.
+Copy this volume off the server regularly.

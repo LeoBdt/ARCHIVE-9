@@ -1,26 +1,26 @@
 name: Bug
-description: Quelque chose ne marche pas comme prévu
+description: Something doesn't work as expected
 labels: [bug]
 body:
   - type: textarea
     id: what
     attributes:
-      label: Ce qui se passe
+      label: What happens
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Ce qui devrait se passer
+      label: What should happen
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Comment reproduire
+      label: Steps to reproduce
   - type: textarea
     id: logs
     attributes:
       label: Logs
-      description: Sans token ni ID réel.
+      description: Without tokens or real IDs.
       render: shell

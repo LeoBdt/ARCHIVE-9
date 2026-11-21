@@ -6,60 +6,60 @@
 flowchart LR
   D[Discord] <-->|gateway| BOT[bot]
   BOT --> PG[(postgres)]
-  BK[backup] -->|pg_dump quotidien| PG
-  WUD[wud] -.met à jour.-> BOT
+  BK[backup] -->|daily pg_dump| PG
+  WUD[wud] -.updates.-> BOT
 ```
 
-| Service | Image | `mem_limit` | Rôle |
+| Service | Image | `mem_limit` | Role |
 |---|---|---|---|
-| `postgres` | `postgres:18-alpine` | 1 Go | base de données, sur un réseau interne sans accès à Internet |
-| `bot` | `ghcr.io/<owner>/archive-9-bot` | 384 Mo | process Discord |
-| `backup` | `postgres:18-alpine` | 64 Mo | `pg_dump` au démarrage puis toutes les 24 h, rotation sur `BACKUP_KEEP_DAYS` jours |
-| `wud` | `getwud/wud:9` | 128 Mo | met à jour `bot` quand une nouvelle image est publiée |
+| `postgres` | `postgres:18-alpine` | 1 GB | database, on an internal network with no internet access |
+| `bot` | `ghcr.io/<owner>/archive-9-bot` | 384 MB | Discord process |
+| `backup` | `postgres:18-alpine` | 64 MB | `pg_dump` at startup then every 24 h, keeps `BACKUP_KEEP_DAYS` days |
+| `wud` | `getwud/wud:9` | 128 MB | updates `bot` when a new image is published |
 
-Réglages de Postgres : `shared_buffers=256MB`, `effective_cache_size=640MB`, `work_mem=4MB`, `maintenance_work_mem=64MB`, `max_connections=30`.
+Postgres settings: `shared_buffers=256MB`, `effective_cache_size=640MB`, `work_mem=4MB`, `maintenance_work_mem=64MB`, `max_connections=30`.
 
-## Paquets
+## Packages
 
-Les dépendances vont dans un seul sens : `apps → packages`. `core` ne dépend d'aucun autre paquet. `db` est le seul à faire du SQL.
+Dependencies flow one way: `apps → packages`. `core` depends on no other package. `db` is the only one that runs SQL.
 
-Chaque paquet expose directement ses sources `.ts`. Node les exécute via le *type stripping*, ce qui impose une syntaxe TypeScript effaçable (`erasableSyntaxOnly`) : pas d'`enum` ni de `namespace`.
+Each package exports its `.ts` sources directly. Node runs them through type stripping, which requires erasable TypeScript syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`.
 
-## Démarrage du bot
+## Bot startup
 
-1. Lecture et validation des variables d'environnement (zod). Le process s'arrête si une variable manque.
-2. Application des migrations Drizzle en attente.
-3. Connexion à Discord.
-4. Serveur de santé sur `HEALTH_PORT` : `GET /health` renvoie 200 si Discord est connecté et que la base répond, 503 sinon. Il sert au healthcheck Docker.
+1. Environment variables are read and validated with zod. The process exits if one is missing.
+2. Pending Drizzle migrations are applied.
+3. The bot logs in to Discord.
+4. A health server listens on `HEALTH_PORT`: `GET /health` returns 200 when Discord is connected and the database responds, 503 otherwise. Docker uses it as the healthcheck.
 
-## Données
+## Data
 
-Les ID Discord sont stockés en `text`. Les dates sont en `timestamptz`.
+Discord IDs are stored as `text`. Dates are `timestamptz`.
 
-| Table | Contenu |
+| Table | Content |
 |---|---|
-| `members` | membres et bots vus sur le serveur, historique des pseudos, opt-out |
-| `messages` | messages bruts des salons écoutés, avec leurs réactions et leur statut d'analyse |
-| `profile_facts` | une info apprise par ligne : catégorie, nature, confiance, sources, auteur du signalement ; une correction remplace une ligne via `superseded_by` |
-| `profile_summaries` | résumé court de chaque fiche |
-| `relationships` | affinité (−100 à 100), confiance (0 à 100) et ressenti d'ARCHIVE-9 envers chaque membre |
-| `relationship_events` | historique des variations de relation |
-| `self_state_versions` | état évolutif d'ARCHIVE-9, une version par ligne |
-| `skills` | règles de comportement durables créées par les membres |
-| `actions_log` | actions Discord tentées, refus, valeur précédente, annulations |
-| `ai_usage` | appels IA : tâche, modèle, fournisseur, tokens, coût, durée, messages produits |
-| `settings` | réglages modifiables à chaud |
+| `members` | members and bots seen on the server, nickname history, opt-out |
+| `messages` | raw messages from listened channels, with reactions and analysis status |
+| `profile_facts` | one learned fact per row: category, nature, confidence, sources, reporter; a correction replaces a row through `superseded_by` |
+| `profile_summaries` | short summary of each profile |
+| `relationships` | ARCHIVE-9's affinity (−100 to 100), trust (0 to 100) and feeling toward each member |
+| `relationship_events` | history of relationship changes |
+| `self_state_versions` | ARCHIVE-9's evolving state, one version per row |
+| `skills` | durable behaviour rules created by members |
+| `actions_log` | attempted Discord actions, refusals, previous values, undos |
+| `ai_usage` | AI calls: task, model, provider, tokens, cost, duration, produced messages |
+| `settings` | settings editable at runtime |
 
-Supprimer un membre supprime en cascade ses messages, ses infos, son résumé et sa relation.
+Deleting a member cascades to their messages, facts, summary and relationship.
 
-Le schéma est dans [`packages/db/src/schema.ts`](../packages/db/src/schema.ts) et les migrations dans [`packages/db/migrations`](../packages/db/migrations).
+The schema is in [`packages/db/src/schema.ts`](../packages/db/src/schema.ts) and migrations in [`packages/db/migrations`](../packages/db/migrations).
 
 ## CI
 
-| Job | Déclencheur | Étapes |
+| Job | Trigger | Steps |
 |---|---|---|
-| `check` | PR et push sur `main` | install, lint, typecheck, tests avec couverture sur un Postgres 18 |
-| `secrets` | PR et push sur `main` | gitleaks sur tout l'historique |
-| `image` | après `check` et `secrets` | build `linux/amd64`, push sur GHCR (`latest` et SHA) uniquement depuis `main` |
+| `check` | PRs and pushes to `main` | install, lint, typecheck, tests with coverage against Postgres 18 |
+| `secrets` | PRs and pushes to `main` | gitleaks over the full history |
+| `image` | after `check` and `secrets` | `linux/amd64` build, pushed to GHCR (`latest` and SHA) from `main` only |
 
-Seuil de couverture : 80 % sur `packages/core` et `packages/ai`.
+Coverage threshold: 80% on `packages/core` and `packages/ai`.

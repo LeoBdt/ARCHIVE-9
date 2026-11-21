@@ -1,7 +1,7 @@
-## Changement
+## Change
 
-## Vérifié
+## Checklist
 
 - [ ] `pnpm lint && pnpm typecheck && pnpm test`
-- [ ] Doc à jour si le comportement change
-- [ ] Aucun secret, ID ou info d'infra
+- [ ] Docs updated if behaviour changes
+- [ ] No secrets, IDs or infrastructure details
