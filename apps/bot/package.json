@@ -1,0 +1,17 @@
+{
+  "name": "@archive-9/bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "dev": "node --env-file-if-exists=../../.env --watch src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@archive-9/core": "workspace:*",
+    "@archive-9/db": "workspace:*",
+    "discord.js": "^14.28.1",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  }
+}
