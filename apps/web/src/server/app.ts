@@ -1,6 +1,6 @@
 import { homeOverview, latestSelfState, readSettings, siteViewer, type Database, type SiteViewer } from "@archive-9/db";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -18,6 +18,8 @@ export interface AppDeps {
   ownerId: string;
   /** Built client (Vite output), or null to serve the API only. */
   clientDir: string | null;
+  /** Public address, for the link preview. */
+  siteUrl: string;
 }
 
 export type Viewer = SiteViewer & { isOwner: boolean };
@@ -26,7 +28,28 @@ interface Env {
   Variables: { viewer: Viewer };
 }
 
-export const ROBOTS_TXT = "User-agent: *\nDisallow: /\n";
+// Search engines stay out. Discord's link preview may read the home page and its image.
+export const ROBOTS_TXT = "User-agent: Discordbot\nAllow: /$\nAllow: /og.png\nDisallow: /\n\nUser-agent: *\nDisallow: /\n";
+
+const escapeAttr = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+
+/** Open Graph tags: what Discord shows when someone posts a link to the site. */
+export function linkPreview(siteUrl: string): string {
+  const base = escapeAttr(siteUrl.replace(/\/$/, ""));
+  return [
+    `<meta name="description" content="J'observe, je retiens, je classe. Accès réservé aux membres du Royaume." />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:site_name" content="ARCHIVE-9" />`,
+    `<meta property="og:title" content="ARCHIVE-9" />`,
+    `<meta property="og:description" content="J'observe, je retiens, je classe. Accès réservé aux membres du Royaume." />`,
+    `<meta property="og:url" content="${base}/" />`,
+    `<meta property="og:image" content="${base}/og.png" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta property="og:image:alt" content="ARCHIVE-9, une unité d'archivage en pixel art à l'œil rouge" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+  ].join("\n    ");
+}
 
 export function createApp(deps: AppDeps) {
   const app = new Hono<Env>();
@@ -91,19 +114,22 @@ export function createApp(deps: AppDeps) {
 
   if (deps.clientDir) {
     const dir = deps.clientDir;
+    let index: string | null = null;
+    // The client handles its own routes; the page carries the link preview.
+    const page = async (c: Context) => {
+      index ??= (await readFile(join(dir, "index.html"), "utf8")).replace("<!--link-preview-->", linkPreview(deps.siteUrl));
+      c.header("Cache-Control", "no-store");
+      return c.html(index);
+    };
+    app.get("/", page);
+    app.get("/index.html", page);
     // Built files carry a hash in their name: they never change.
     app.use("/assets/*", async (c, next) => {
       await next();
       if (c.res.ok) c.header("Cache-Control", "public, max-age=31536000, immutable");
     });
     app.use("/*", serveStatic({ root: dir }));
-    let index: string | null = null;
-    // The client handles its own routes.
-    app.get("*", async (c) => {
-      index ??= await readFile(join(dir, "index.html"), "utf8");
-      c.header("Cache-Control", "no-store");
-      return c.html(index);
-    });
+    app.get("*", page);
   }
 
   return app;

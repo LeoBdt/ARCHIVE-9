@@ -14,6 +14,7 @@ const auth = createAuth(db, env);
 const app = createApp({
   db,
   ownerId: env.SITE_OWNER_ID,
+  siteUrl: env.SITE_URL,
   clientDir: env.NODE_ENV === "production" ? fileURLToPath(new URL("../../dist/client", import.meta.url)) : null,
   auth: {
     handler: (request) => auth.handler(request),

@@ -54,6 +54,7 @@ describe.skipIf(!url)("Discord login, end to end", () => {
       db: conn.db,
       ownerId: MEMBER,
       clientDir: null,
+      siteUrl: SITE,
       auth: {
         handler: (request) => auth.handler(request),
         discordId: async (headers) => {
