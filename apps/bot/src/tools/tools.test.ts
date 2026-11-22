@@ -10,12 +10,15 @@ const db = vi.hoisted(() => ({
   getAction: vi.fn(),
   claimPending: vi.fn(() => Promise.resolve({ id: "a1" })),
   finishAction: vi.fn(() => Promise.resolve()),
+  currentFacts: vi.fn(() => Promise.resolve([{ id: "f1", content: "Joue à CS2.", nature: "fact" }, { id: "f2", content: "A inventé un faux opt-out.", nature: "fact" }])),
+  forgetOwnFacts: vi.fn(() => Promise.resolve(["A inventé un faux opt-out."])),
 }));
 vi.mock("@archive-9/db", () => db);
 
 const { createActionTools } = await import("./actions.ts");
 const { handleConfirmation } = await import("./confirm.ts");
 const { findChannel } = await import("./free.ts");
+const { createProfileTools } = await import("./profile.ts");
 const { describeAction, formatSkills } = await import("../commands.ts");
 
 const opts = { toolCallId: "t", messages: [], context: {} };
@@ -198,6 +201,24 @@ describe("confirmation buttons", () => {
     await handleConfirmation(i, deps, true, "a1");
     expect(db.claimPending).toHaveBeenCalledWith(expect.anything(), "a1", "cancelled", "expirée");
     expect(tom.setNickname).not.toHaveBeenCalled();
+  });
+});
+
+describe("own profile tools", () => {
+  it("lists the requester's facts and removes the ones named, with the reason", async () => {
+    const { ctx } = setup();
+    const tools = createProfileTools(ctx);
+    expect(await tools.myFacts.execute({}, opts)).toMatchObject({ facts: [{ ref: "F1" }, { ref: "F2", content: "A inventé un faux opt-out." }] });
+    expect(await tools.forgetMyFacts.execute({ refs: ["F2", "F9"], reason: "c'était un test" }, opts)).toMatchObject({ ok: true });
+    expect(db.forgetOwnFacts).toHaveBeenCalledWith(expect.anything(), "req", ["f2"], "c'était un test", "discord");
+  });
+
+  it("only works when the person asked, never for a bot", async () => {
+    for (const options of [{ addressed: false }, { authorBot: true }]) {
+      const tools = createProfileTools(setup(options).ctx);
+      expect(await tools.forgetMyFacts.execute({ refs: ["F1"], reason: "parce que" }, opts)).toMatchObject({ ok: false });
+    }
+    expect(db.forgetOwnFacts).not.toHaveBeenCalled();
   });
 });
 

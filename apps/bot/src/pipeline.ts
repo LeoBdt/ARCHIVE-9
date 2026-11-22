@@ -328,6 +328,7 @@ export class Pipeline {
           targetId: target.id,
           targetAuthorId: target.author.id,
           triageReason: run.triageReason,
+          mentionNote: this.mentionNote(target, directory),
           transcript: formatTranscript(history, { targetId: target.id, timeZone: this.deps.timezone, names: directory.names }),
           names: directory.names,
           participants,
@@ -413,6 +414,18 @@ export class Pipeline {
     }
   }
 
+  /**
+   * « @Bot fais ceci avec @ARCHIVE-9 »: the request is for the first person tagged, and
+   * ARCHIVE-9 is only named. The model is told, so it doesn't answer in their place.
+   */
+  private mentionNote(target: Message, directory: Directory): string | null {
+    const first = /<@!?(\d+)>/.exec(target.content)?.[1];
+    if (!first || first === this.deps.selfId || target.mentions.repliedUser?.id === this.deps.selfId) return null;
+    if (!target.mentions.users.has(this.deps.selfId)) return null;
+    const name = directory.names.get(first) ?? target.mentions.users.get(first)?.username ?? "quelqu'un d'autre";
+    return `Le message interpelle d'abord ${name} : la demande s'adresse à lui, toi tu es seulement cité. Ne réponds pas à sa place ; réagis à ce qui te concerne, ou tais-toi.`;
+  }
+
   /** Short memory: what the target author said lately outside this conversation. */
   private async elsewhere(target: Message, history: TranscriptMessage[]) {
     const recent = await recentWithMember(this.deps.db, this.deps.selfId, target.author.id, {
@@ -443,7 +456,8 @@ export class Pipeline {
     this.cachedDirectory = {
       loadedAt: Date.now(),
       byId: new Map(members.map((m) => [m.id, m])),
-      names: new Map(members.map((m) => [m.id, m.name])),
+      // Its own tag reads « @ARCHIVE-9 (toi) », so it knows when it is the one named.
+      names: new Map([...members.map((m): [string, string] => [m.id, m.name]), [this.deps.selfId, "ARCHIVE-9 (toi)"]]),
       find: createMemberFinder(members),
     };
     return this.cachedDirectory;

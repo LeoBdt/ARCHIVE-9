@@ -32,6 +32,8 @@ export interface ReplyInput {
   targetId: string;
   targetAuthorId: string;
   triageReason: string | null;
+  /** Set when the message tags someone else first and only names ARCHIVE-9. */
+  mentionNote?: string | null;
   transcript: string;
   participants: Participant[];
   selfState: SelfState;
@@ -104,7 +106,7 @@ ${input.skills.map((k) => `- ${k.name}${k.kind === "triggered" ? " (déclenchée
   return `## Contexte
 ${when}, ${where}.${version}
 ${situation}
-${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
+${input.mentionNote ? `${input.mentionNote}\n` : ""}${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Ton état actuel
 ${describeSelfState(input.selfState)}
 
