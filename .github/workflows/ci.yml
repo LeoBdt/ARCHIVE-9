@@ -79,8 +79,24 @@ jobs:
           context: .
           file: docker/bot.Dockerfile
           platforms: linux/amd64
-          push: ${{ github.event_name == 'push' }}
+          load: true
+          tags: archive-9-bot:ci
+          cache-from: type=gha,scope=bot
+          cache-to: type=gha,mode=max,scope=bot
+      # Starting without any variable must fail on env validation, which only runs once
+      # every import has resolved: a missing package fails here instead of in production.
+      - name: Smoke test the image
+        run: |
+          out=$(docker run --rm archive-9-bot:ci 2>&1 || true)
+          echo "$out" | tail -5
+          echo "$out" | grep -q "Invalid environment"
+      - uses: docker/build-push-action@v7
+        if: github.event_name == 'push'
+        with:
+          context: .
+          file: docker/bot.Dockerfile
+          platforms: linux/amd64
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=bot
-          cache-to: type=gha,mode=max,scope=bot
