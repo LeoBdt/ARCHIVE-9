@@ -13,6 +13,7 @@ export interface SelfStateChange {
   opinions: ListChange;
   runningJokes: ListChange;
   notes: string;
+  resolutions?: ListChange;
 }
 
 export const SELF_STATE_LIMITS = {
@@ -21,6 +22,7 @@ export const SELF_STATE_LIMITS = {
   maxItemLength: 160,
   maxMoodLength: 120,
   maxNotesLength: 600,
+  maxResolutions: 8,
 };
 
 export type SelfStateLimits = typeof SELF_STATE_LIMITS;
@@ -58,5 +60,6 @@ export function applySelfStateChange(
     opinions: applyList(current.opinions, change.opinions, limits),
     runningJokes: applyList(current.runningJokes, change.runningJokes, limits),
     notes: notes || current.notes,
+    resolutions: applyList(current.resolutions ?? [], change.resolutions ?? { add: [], remove: [] }, { ...limits, maxItems: limits.maxResolutions }),
   };
 }

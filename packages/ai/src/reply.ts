@@ -18,6 +18,8 @@ export interface Participant {
   trust: number | null;
   feeling: string | null;
   introduced: boolean;
+  /** How they asked to be treated. */
+  preferences?: string[];
 }
 
 export interface ReplyInput {
@@ -44,6 +46,8 @@ export interface ReplyInput {
   elsewhere?: { where: string; messages: TranscriptMessage[] }[];
   /** Skills that apply to this message: permanent ones and those its words trigger. */
   skills?: { name: string; kind: SkillKind; rule: string; authorName: string | null; until?: string | null }[];
+  /** Feedback on its behaviour that no reflection has weighed yet. */
+  feedback?: { authorName: string; content: string }[];
   /** The deployment currently running, and since when. */
   version?: { label: string; since: Date };
 }
@@ -56,7 +60,8 @@ function describeParticipant(p: Participant): string {
       ? "aucune relation enregistrée"
       : `affinité ${String(p.affinity)}/100, confiance ${String(p.trust ?? 50)}/100${p.feeling ? `, ressenti : ${p.feeling}` : ""}`;
   const intro = p.introduced ? "" : " — tu ne t'es jamais présenté à cette personne";
-  return `- ${p.name}${p.isBot ? " [bot]" : ""} (ID ${p.id}) : ${relation}${intro}${p.summary ? `\n  Fiche : ${p.summary}` : ""}`;
+  const prefs = p.preferences?.length ? `\n  Ses préférences, à respecter avec cette personne : ${p.preferences.join(" ; ")}` : "";
+  return `- ${p.name}${p.isBot ? " [bot]" : ""} (ID ${p.id}) : ${relation}${intro}${p.summary ? `\n  Fiche : ${p.summary}` : ""}${prefs}`;
 }
 
 function describeSelfState(state: SelfState): string {
@@ -64,6 +69,7 @@ function describeSelfState(state: SelfState): string {
   if (state.opinions.length) lines.push(`Opinions : ${state.opinions.join(" ; ")}`);
   if (state.runningJokes.length) lines.push(`Blagues récurrentes : ${state.runningJokes.join(" ; ")}`);
   if (state.notes) lines.push(`Notes : ${state.notes}`);
+  if (state.resolutions?.length) lines.push(`Tes résolutions (ce que tu as décidé de changer chez toi, à appliquer) : ${state.resolutions.join(" ; ")}`);
   return lines.join("\n");
 }
 
@@ -103,6 +109,15 @@ ${input.skills.map((k) => `- ${k.name}${k.kind === "triggered" ? " (déclenchée
     ? `\nTa version actuelle : ${input.version.label}, en ligne depuis le ${input.version.since.toLocaleString("fr-FR", { timeZone: input.timezone, dateStyle: "long", timeStyle: "short" })}.`
     : "";
 
+  const feedback = input.feedback?.length
+    ? `\n## Ce qu'on t'a reproché récemment
+Des retours de membres sur ta façon d'être, pas encore digérés par ta réflexion du soir. Tiens-en compte dès maintenant, sans renier ta personnalité ni tes limites.
+<donnees>
+${input.feedback.map((f) => `- ${f.authorName} : ${f.content}`).join("\n")}
+</donnees>
+`
+    : "";
+
   return `## Contexte
 ${when}, ${where}.${version}
 ${situation}
@@ -112,7 +127,7 @@ ${describeSelfState(input.selfState)}
 
 ## Participants
 ${input.participants.map(describeParticipant).join("\n") || "- (aucun)"}
-${shortMemory}${skills}
+${shortMemory}${skills}${feedback}
 ## Conversation récente (le message cible est #${input.targetId})
 <donnees>
 ${input.transcript}

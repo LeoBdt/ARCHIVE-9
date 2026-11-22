@@ -42,6 +42,8 @@ export interface SelfState {
   opinions: string[];
   runningJokes: string[];
   notes: string;
+  /** What it decided to change in how it behaves, after members' feedback. */
+  resolutions?: string[];
 }
 
 export interface NameHistoryEntry {

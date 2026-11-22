@@ -1,6 +1,6 @@
 import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
-import { members, messages, profileFacts, profileSummaries, relationships, skills, factCorrections } from "../schema.ts";
+import { members, messages, profileFacts, profileSummaries, relationships, skills, factCorrections, feedback, memberPreferences } from "../schema.ts";
 
 export async function profileOverview(db: Database, memberId: string) {
   const [[member], [facts], [msgs], [summary], [relation]] = await Promise.all([
@@ -40,6 +40,8 @@ export async function forgetMember(db: Database, memberId: string): Promise<void
     await tx.delete(profileSummaries).where(eq(profileSummaries.memberId, memberId));
     await tx.delete(relationships).where(eq(relationships.memberId, memberId));
     await tx.delete(factCorrections).where(eq(factCorrections.memberId, memberId));
+    await tx.delete(feedback).where(eq(feedback.authorId, memberId));
+    await tx.delete(memberPreferences).where(eq(memberPreferences.memberId, memberId));
     await tx
       .update(skills)
       .set({ deletedAt: sql`now()`, deletedBy: memberId })

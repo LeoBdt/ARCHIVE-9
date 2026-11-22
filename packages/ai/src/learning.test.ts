@@ -287,6 +287,18 @@ describe("reflect", () => {
     expect(quiet).toContain("Notes : (aucune)");
   });
 
+  it("gives the feedback to weigh, with the trust in each author", () => {
+    const prompt = buildReflectionPrompt({
+      ...reflection,
+      state: { ...INITIAL_SELF_STATE, resolutions: ["je pique moins"] },
+      feedback: [{ name: "Léa", trust: 70, content: "Trop agressif." }, { name: "Max", trust: null, content: "Tais-toi." }],
+    });
+    expect(prompt).toContain("Résolutions :\n1. je pique moins");
+    expect(prompt).toContain("- Léa (ta confiance : 70/100) : Trop agressif.");
+    expect(prompt).toContain("- Max (ta confiance : inconnue) : Tais-toi.");
+    expect(buildReflectionPrompt(reflection)).toContain("## Les retours qu'on t'a faits sur ta façon d'être\n(aucun)");
+  });
+
   it("reads a whole history in awakening mode", async () => {
     const prompt = buildReflectionPrompt({ ...reflection, mode: "awakening", server: { id: "500", name: "Le Royaume", summary: null } });
     expect(prompt).toContain("## Le serveur\nNom : Le Royaume (ID 500).");

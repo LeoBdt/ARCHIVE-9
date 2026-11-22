@@ -17,6 +17,7 @@ import {
   summariesToRefresh,
   type AnalysisWrite,
 } from "./learning.ts";
+import { addFeedback, addPreference, listPreferences, markFeedbackReviewed, pendingFeedback, preferencesFor, removePreference } from "./feedback.ts";
 import { ensureMember, ensureServerProfile, getMember, memberDirectory, upsertMember } from "./members.ts";
 import {
   contextBefore,
@@ -170,6 +171,25 @@ describe.skipIf(!url)("learning repositories", () => {
     expect(await summariesToRefresh(db)).toEqual(["1"]);
     await saveSummary(db, { memberId: "1", summary: "Joue à CS2.", tagline: null, factCount: 1, model: "m" });
     expect(await summariesToRefresh(db)).toEqual([]);
+  });
+
+  it("keeps feedback until a reflection weighs it, five a day per member", async () => {
+    for (let i = 0; i < 5; i++) expect(await addFeedback(db, "3", `trop agressif ${String(i)}`, null)).toBe(true);
+    expect(await addFeedback(db, "3", "encore", null)).toBe(false);
+    const pending = await pendingFeedback(db);
+    expect(pending.map((f) => f.authorName)).toEqual(["max", "max", "max", "max", "max"]);
+    await markFeedbackReviewed(db, pending.map((f) => f.id));
+    expect(await pendingFeedback(db)).toEqual([]);
+  });
+
+  it("keeps each member's preferences to themselves", async () => {
+    expect(await addPreference(db, "3", "Vouvoie-moi.")).toBe(true);
+    expect(await addPreference(db, "3", "vouvoie-moi.")).toBe(false);
+    const [pref] = await listPreferences(db, "3");
+    expect(await removePreference(db, "2", pref?.id ?? "")).toBe(false);
+    expect((await preferencesFor(db, ["3", "2"])).get("3")).toEqual(["Vouvoie-moi."]);
+    expect(await removePreference(db, "3", pref?.id ?? "")).toBe(true);
+    expect(await preferencesFor(db, ["3"])).toEqual(new Map());
   });
 
   it("keeps a profile row for the server", async () => {

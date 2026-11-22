@@ -103,6 +103,20 @@ describe("buildReplyPrompt", () => {
     expect(buildReplyPrompt({ ...baseInput, mentionNote: note })).toContain(`réponds (sauf si le message te demande explicitement de te taire).\n${note}`);
   });
 
+  it("gives recent feedback, resolutions and each person's preferences", () => {
+    const prompt = buildReplyPrompt({
+      ...baseInput,
+      feedback: [{ authorName: "Léa", content: "Tu es trop agressif avec les nouveaux." }],
+      selfState: { ...INITIAL_SELF_STATE, resolutions: ["je pique moins les nouveaux"] },
+      participants: baseInput.participants.map((p) => ({ ...p, preferences: ["Vouvoie-moi."] })),
+    });
+    expect(prompt).toContain("## Ce qu'on t'a reproché récemment");
+    expect(prompt).toContain("- Léa : Tu es trop agressif avec les nouveaux.");
+    expect(prompt).toContain("Tes résolutions (ce que tu as décidé de changer chez toi, à appliquer) : je pique moins les nouveaux");
+    expect(prompt).toContain("Ses préférences, à respecter avec cette personne : Vouvoie-moi.");
+    expect(buildReplyPrompt(baseInput)).not.toContain("reproché");
+  });
+
   it("knows its version", () => {
     const prompt = buildReplyPrompt({ ...baseInput, version: { label: "Novahe (a1b2c3d)", since: new Date("2026-01-01T08:00:00Z") } });
     expect(prompt).toContain("Ta version actuelle : Novahe (a1b2c3d), en ligne depuis le 1 janvier 2026 à 09:00.");
@@ -210,6 +224,7 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain("## La règle du serveur pour les bots");
     expect(REPLY_SYSTEM).toContain("Ne promets jamais de t'en souvenir autrement");
     expect(REPLY_SYSTEM).toContain("`forgetMyFacts`");
+    expect(REPLY_SYSTEM).toContain("une logique que tu dois avoir");
   });
 });
 

@@ -5,6 +5,7 @@ import {
   findActiveSkill,
   forgetMember,
   getAction,
+  listPreferences,
   listSkills,
   markUndone,
   optBackIn,
@@ -109,7 +110,8 @@ async function myProfile(i: ChatInputCommandInteraction, deps: CommandDeps) {
     return;
   }
   const facts = await currentFacts(deps.db, i.user.id, PROFILE_FACTS);
-  await i.reply({ content: formatProfile(i.user.displayName, i.user.id, overview, facts), flags: ephemeral });
+  const preferences = (await listPreferences(deps.db, i.user.id)).map((p) => p.content);
+  await i.reply({ content: formatProfile(i.user.displayName, i.user.id, overview, facts, preferences), flags: ephemeral });
 }
 
 const PROFILE_FACTS = 12;
@@ -132,6 +134,7 @@ export function formatProfile(
   id: string,
   overview: Awaited<ReturnType<typeof profileOverview>>,
   facts: CurrentFact[],
+  preferences: string[] = [],
 ): string {
   const lines = [`**Dossier n°${id}** · ${name}`];
   if (overview.tagline) lines.push(`> ${overview.tagline}`);
@@ -140,9 +143,11 @@ export function formatProfile(
   lines.push(`-# ${String(overview.messageCount)} messages archivés · ${String(overview.factCount)} fragments retenus${relation}`);
   if (!overview.summary && facts.length === 0) {
     lines.push("", "Rien d'exploitable pour l'instant. Je relis les conversations toutes les quelques heures. Patience, j'observe.");
+    if (preferences.length > 0) lines.push("", "**Ce que tu m'as demandé**", ...preferences.map((p) => `- ${p}`));
     return lines.join("\n");
   }
   if (overview.summary) lines.push("", overview.summary);
+  if (preferences.length > 0) lines.push("", "**Ce que tu m'as demandé**", ...preferences.map((p) => `- ${p}`));
   if (facts.length > 0) lines.push("", "**Derniers fragments**");
   let length = lines.join("\n").length;
   let shown = 0;

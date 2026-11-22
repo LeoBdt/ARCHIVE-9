@@ -87,6 +87,8 @@ Every reply gets the same tool set, so the definitions stay identical and cachea
 | `findMember` | free | ID, name and summary from the member directory |
 | `createThread`, `createPoll` | free | thread on the target message; poll of 2 to 10 answers, 1 hour to 7 days |
 | `myFacts`, `forgetMyFacts` | own profile | the requester's own facts only; removal needs a reason, stored in `fact_corrections` |
+| `noteFeedback` | feedback | about ARCHIVE-9's own behaviour, 5 a day per member; see below |
+| `myPreferences`, `setMyPreference`, `forgetMyPreference` | own preferences | how the requester wants to be treated, 10 per member |
 | `createSkill`, `deleteSkill`, `listSkills` | skills | see below |
 | `createChannel`, `renameChannel`, `renameMember`, `setRole`, `pinMessage` | controlled | see below |
 
@@ -101,6 +103,14 @@ Controlled actions are checked by the code before anything reaches Discord:
 An action that stays inside AGENTS (a channel created, renamed or pinned in it) runs right away, without the permission check. Anything else (nicknames, roles, other channels) is posted with **Confirmer** / **Annuler** buttons that only the requester can use, for 10 minutes; all checks run again on confirmation.
 
 Every attempt is stored in `actions_log` (pending, done, refused, failed, cancelled, undone) with the value needed to undo it. Bans, kicks, timeouts, deletions and permission changes have no tool.
+
+### Feedback, skills and preferences
+
+ARCHIVE-9 files each request where it belongs:
+
+- **Feedback**: about how it behaves in general, or a logic it should follow ("tu es trop agressif avec les gens"). Stored in `feedback` and shown in every reply until the evening reflection weighs it (several people count more than one, trust in the author counts, anything against its identity or limits is ignored). The reflection turns it into **resolutions** in the self state, 8 at most, 2 added or removed per day.
+- **Skills**: a behaviour for the whole server, fun or about a topic (below).
+- **Preferences**: how one member wants to be treated ("vouvoie-moi"), set and removed by that member only, shown in replies when they take part, listed in `/mafiche`.
 
 ### Skills
 
@@ -249,6 +259,8 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `profile_summaries` | short summary of each profile, used in replies, and a tagline |
 | `relationships` | ARCHIVE-9's affinity (−100 to 100), trust (0 to 100) and feeling toward each member |
 | `relationship_events` | history of relationship changes |
+| `feedback` | members' feedback on ARCHIVE-9's behaviour, until a reflection reviews it |
+| `member_preferences` | how each member asked to be treated |
 | `fact_corrections` | facts a member took off their own profile, with their reason; shown to the analysis so they aren't learned again |
 | `self_state_versions` | ARCHIVE-9's evolving state, one version per row |
 | `skills` | rules taught by members: name, kind (`permanent` or `triggered`), triggers, author, use count |

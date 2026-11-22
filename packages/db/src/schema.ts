@@ -187,6 +187,37 @@ export const selfStateVersions = pgTable("self_state_versions", {
   createdAt: createdAt(),
 });
 
+/** What members told ARCHIVE-9 about how it behaves. The evening reflection weighs it. */
+export const feedback = pgTable(
+  "feedback",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    authorId: text()
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    content: text().notNull(),
+    sourceMessageId: text(),
+    createdAt: createdAt(),
+    /** Read by a reflection: no longer shown in every reply. */
+    reviewedAt: timestamptz(),
+  },
+  (t) => [index().on(t.createdAt)],
+);
+
+/** How a member wants to be treated, asked by them: only used when they take part. */
+export const memberPreferences = pgTable(
+  "member_preferences",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    memberId: text()
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    content: text().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.memberId)],
+);
+
 export const skills = pgTable(
   "skills",
   {
