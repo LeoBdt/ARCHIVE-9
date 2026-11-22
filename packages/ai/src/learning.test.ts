@@ -89,6 +89,12 @@ describe("buildAnalysisPrompt", () => {
     expect(prompt).toContain("[ARCHIVE-9 (ID 9)] : noté");
   });
 
+  it("shows what a member took off their profile, so it isn't learned again", () => {
+    const removed = [{ content: "A inventé un faux opt-out.", reason: "c'était un test" }];
+    const prompt = buildAnalysisPrompt({ ...input, participants: input.participants.map((p, i) => (i === 0 ? { ...p, removed } : p)) });
+    expect(prompt).toContain("  Retiré par la personne elle-même (ne le réapprends pas) :\n  ✕ A inventé un faux opt-out. (raison : c'était un test)");
+  });
+
   it("handles a batch without context or participants", () => {
     const prompt = buildAnalysisPrompt({ ...input, participants: [], conversations: [{ channelName: null, context: [], messages: [msg("11", "1", "x")] }] });
     expect(prompt).toContain("- (aucun)");

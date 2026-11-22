@@ -2,7 +2,7 @@ import { applyAffinity, applyTrust, capDelta, type FactCategory, type FactNature
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client.ts";
-import { members, messages, profileFacts, profileSummaries, relationshipEvents, relationships } from "../schema.ts";
+import { factCorrections, members, messages, profileFacts, profileSummaries, relationshipEvents, relationships } from "../schema.ts";
 
 export interface CurrentFact {
   id: string;
@@ -26,6 +26,8 @@ export interface ParticipantProfile {
   trust: number | null;
   feeling: string | null;
   facts: CurrentFact[];
+  /** What they took off their own profile, newest first. */
+  removed: Correction[];
 }
 
 const isCurrent = and(isNull(profileFacts.supersededBy), isNull(profileFacts.deletedAt));
@@ -77,7 +79,7 @@ export async function memberNames(db: Database, ids: string[]): Promise<Map<stri
  */
 export async function participantProfiles(db: Database, ids: string[], factsPerMember: number): Promise<ParticipantProfile[]> {
   if (ids.length === 0) return [];
-  const [people, summaries, relations, facts] = await Promise.all([
+  const [people, summaries, relations, facts, corrections] = await Promise.all([
     db
       .select()
       .from(members)
@@ -85,6 +87,7 @@ export async function participantProfiles(db: Database, ids: string[], factsPerM
     db.select().from(profileSummaries).where(inArray(profileSummaries.memberId, ids)),
     db.select().from(relationships).where(inArray(relationships.memberId, ids)),
     selectFacts(db, and(inArray(profileFacts.memberId, ids), isCurrent), 5_000),
+    recentCorrections(db, ids),
   ]);
   const summaryOf = new Map(summaries.map((s) => [s.memberId, s.summary]));
   const relationOf = new Map(relations.map((r) => [r.memberId, r]));
@@ -101,6 +104,7 @@ export async function participantProfiles(db: Database, ids: string[], factsPerM
       trust: relation?.trust ?? null,
       feeling: relation?.feeling ?? null,
       facts: facts.filter((f) => f.memberId === person.id).slice(0, factsPerMember),
+      removed: corrections.get(person.id) ?? [],
     };
   });
 }
@@ -267,4 +271,55 @@ export async function saveSummary(db: Database, write: SummaryWrite): Promise<vo
 
 export async function deleteSummary(db: Database, memberId: string): Promise<void> {
   await db.delete(profileSummaries).where(eq(profileSummaries.memberId, memberId));
+}
+
+export interface Correction {
+  content: string;
+  reason: string;
+}
+
+/**
+ * Takes facts off a member's own profile. Only their current facts can go; the rest of
+ * `factIds` is ignored. Returns what was removed.
+ */
+export async function forgetOwnFacts(db: Database, memberId: string, factIds: string[], reason: string, source: "discord" | "site"): Promise<string[]> {
+  if (factIds.length === 0) return [];
+  return db.transaction(async (tx) => {
+    const removed = await tx
+      .update(profileFacts)
+      .set({ deletedAt: sql`now()`, deletedBy: memberId })
+      .where(and(inArray(profileFacts.id, factIds), eq(profileFacts.memberId, memberId), isCurrent))
+      .returning({ id: profileFacts.id, content: profileFacts.content });
+    if (removed.length > 0) {
+      await tx.insert(factCorrections).values(removed.map((f) => ({ memberId, factId: f.id, content: f.content, reason, source })));
+    }
+    return removed.map((f) => f.content);
+  });
+}
+
+/** Last corrections of each member, for the analysis not to learn them again. */
+export async function recentCorrections(db: Database, memberIds: string[], perMember = 10): Promise<Map<string, Correction[]>> {
+  const result = new Map<string, Correction[]>();
+  if (memberIds.length === 0) return result;
+  const rows = await db
+    .select({ memberId: factCorrections.memberId, content: factCorrections.content, reason: factCorrections.reason })
+    .from(factCorrections)
+    .where(inArray(factCorrections.memberId, memberIds))
+    .orderBy(desc(factCorrections.createdAt));
+  for (const row of rows) {
+    const list = result.get(row.memberId) ?? [];
+    if (list.length < perMember) list.push({ content: row.content, reason: row.reason });
+    result.set(row.memberId, list);
+  }
+  return result;
+}
+
+/** Members whose summary was written before their last correction: it still shows what they removed. */
+export async function summariesToRefresh(db: Database): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ memberId: factCorrections.memberId })
+    .from(factCorrections)
+    .innerJoin(profileSummaries, eq(profileSummaries.memberId, factCorrections.memberId))
+    .where(sql`${profileSummaries.generatedAt} < ${factCorrections.createdAt}`);
+  return rows.map((r) => r.memberId);
 }

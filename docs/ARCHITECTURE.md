@@ -71,7 +71,7 @@ flowchart TD
 - A weak name (`BOT_SOFT_ALIASES`, e.g. « archive », also a common verb) sends the message to triage instead.
 - In observer mode, messages still go to triage for 3 minutes after ARCHIVE-9 spoke in the channel.
 - **Triage** gets the last 10 messages and a note computed by the code (whether ARCHIVE-9 is in the conversation, who it answered, who wrote since, who the message replies to, weak name match), and returns `{ addressed, interest, reason }`, validated with zod. `addressed` means the message is for ARCHIVE-9; `interest` (0–10) is the value of an unprompted intervention. Within a burst, the last human message stays the target even if a bot answers right after.
-- Transcripts show who each reply is for (`↪ à Dave`) and tags as `@Name`.
+- Transcripts show who each reply is for (`↪ à Dave`) and tags as `@Name`; ARCHIVE-9's own tag reads `@ARCHIVE-9 (toi)`. When a message tags someone else first and only names ARCHIVE-9, the reply prompt says the request is for that person.
 - **Reply** gets the last 20 messages, the participants' profile summaries and relationships, the current self state, the profiles of people the message tags or names (by name, former name, first name of 3+ letters or initials such as "jp", up to 5), and a short memory: what the target author said in the last 6 hours outside those 20 messages (other channels, DMs) with ARCHIVE-9's replies, up to 10 messages. All of it is built by the code. It also gets the skills that apply (see below). The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
 - The bot loop guard (bots are only answered in AGENTS) allows at most 10 consecutive replies to bots in a channel without a human, and one reply to a bot per 10 s.
 - While the reply is being generated, the typing indicator is shown.
@@ -86,6 +86,7 @@ Every reply gets the same tool set, so the definitions stay identical and cachea
 | `readChannel` | free | last messages (up to 30) of a listened channel the requester can read; a private channel is only read back in DM |
 | `findMember` | free | ID, name and summary from the member directory |
 | `createThread`, `createPoll` | free | thread on the target message; poll of 2 to 10 answers, 1 hour to 7 days |
+| `myFacts`, `forgetMyFacts` | own profile | the requester's own facts only; removal needs a reason, stored in `fact_corrections` |
 | `createSkill`, `deleteSkill`, `listSkills` | skills | see below |
 | `createChannel`, `renameChannel`, `renameMember`, `setRole`, `pinMessage` | controlled | see below |
 
@@ -248,6 +249,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `profile_summaries` | short summary of each profile, used in replies, and a tagline |
 | `relationships` | ARCHIVE-9's affinity (−100 to 100), trust (0 to 100) and feeling toward each member |
 | `relationship_events` | history of relationship changes |
+| `fact_corrections` | facts a member took off their own profile, with their reason; shown to the analysis so they aren't learned again |
 | `self_state_versions` | ARCHIVE-9's evolving state, one version per row |
 | `skills` | rules taught by members: name, kind (`permanent` or `triggered`), triggers, author, use count |
 | `actions_log` | Discord actions: tool, tier, status (pending, done, refused, failed, cancelled, undone), refusal reason, value before the change, undo |

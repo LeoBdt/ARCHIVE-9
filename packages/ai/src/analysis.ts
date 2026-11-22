@@ -35,6 +35,8 @@ export interface AnalysisParticipant {
   feeling: string | null;
   /** Current facts, most recent first. They get short references (F1, F2…) in the prompt. */
   facts: KnownFact[];
+  /** What the person took off their own profile, with their reason. */
+  removed?: { content: string; reason: string }[];
 }
 
 export interface AnalysisConversation {
@@ -158,6 +160,10 @@ function describeParticipant(p: AnalysisParticipant, refOf: Map<string, string>)
   if (p.facts.length === 0) lines.push("  Aucune info connue.");
   for (const fact of p.facts) {
     lines.push(`  ${refOf.get(fact.id) ?? "?"} · ${fact.category} · ${NATURE_LABELS[fact.nature]} · ${fact.confidence.toFixed(1)} · ${fact.content}`);
+  }
+  if (p.removed?.length) {
+    lines.push("  Retiré par la personne elle-même (ne le réapprends pas) :");
+    for (const r of p.removed) lines.push(`  ✕ ${r.content} (raison : ${r.reason})`);
   }
   return lines.join("\n");
 }

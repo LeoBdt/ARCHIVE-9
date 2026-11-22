@@ -111,6 +111,25 @@ export const profileFacts = pgTable(
   ],
 );
 
+/** Facts a member took off their own profile, with why: never learned again from scratch. */
+export const factCorrections = pgTable(
+  "fact_corrections",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    memberId: text()
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    factId: uuid().references(() => profileFacts.id, { onDelete: "set null" }),
+    /** The removed fact, kept as it was. */
+    content: text().notNull(),
+    reason: text().notNull(),
+    /** Where it was asked: "discord" or "site". */
+    source: text().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.memberId, t.createdAt)],
+);
+
 export const profileSummaries = pgTable("profile_summaries", {
   memberId: text()
     .primaryKey()

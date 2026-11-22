@@ -98,6 +98,11 @@ describe("buildReplyPrompt", () => {
     expect(outside).toContain("du troll");
   });
 
+  it("says when it is only named after someone else", () => {
+    const note = "Le message interpelle d'abord cûm slayer : la demande s'adresse à lui, toi tu es seulement cité.";
+    expect(buildReplyPrompt({ ...baseInput, mentionNote: note })).toContain(`réponds (sauf si le message te demande explicitement de te taire).\n${note}`);
+  });
+
   it("knows its version", () => {
     const prompt = buildReplyPrompt({ ...baseInput, version: { label: "Novahe (a1b2c3d)", since: new Date("2026-01-01T08:00:00Z") } });
     expect(prompt).toContain("Ta version actuelle : Novahe (a1b2c3d), en ligne depuis le 1 janvier 2026 à 09:00.");
@@ -204,6 +209,7 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain("`/skills`");
     expect(REPLY_SYSTEM).toContain("## La règle du serveur pour les bots");
     expect(REPLY_SYSTEM).toContain("Ne promets jamais de t'en souvenir autrement");
+    expect(REPLY_SYSTEM).toContain("`forgetMyFacts`");
   });
 });
 

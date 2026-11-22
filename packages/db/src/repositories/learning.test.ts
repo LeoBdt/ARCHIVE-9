@@ -11,7 +11,10 @@ import {
   factsSince,
   participantProfiles,
   relationshipEventsSince,
+  forgetOwnFacts,
+  recentCorrections,
   saveSummary,
+  summariesToRefresh,
   type AnalysisWrite,
 } from "./learning.ts";
 import { ensureMember, ensureServerProfile, getMember, memberDirectory, upsertMember } from "./members.ts";
@@ -150,6 +153,23 @@ describe.skipIf(!url)("learning repositories", () => {
     await applyAnalysis(db, write({ relationships: [relation()], at: at(24 * 60 + 1) }));
     expect((await participantProfiles(db, ["1"], 5))[0]?.affinity).toBe(20);
     expect((await relationshipEventsSince(db, at(0), 10))[0]).toMatchObject({ memberName: "tom", affinityDelta: 5 });
+  });
+
+  it("lets a member take facts off their own profile only, and remembers why", async () => {
+    await applyAnalysis(db, write({ facts: [fact({ memberId: "1", content: "A inventé un faux opt-out." }), fact({ memberId: "2", content: "Fait des crêpes." })] }));
+    await saveSummary(db, { memberId: "1", summary: "Invente des opt-out.", tagline: null, factCount: 1, model: "m" });
+    const mine = (await currentFacts(db, "1", 50)).find((f) => f.content === "A inventé un faux opt-out.");
+    const hers = (await currentFacts(db, "2", 50)).find((f) => f.content === "Fait des crêpes.");
+
+    expect(await forgetOwnFacts(db, "1", [mine?.id ?? "", hers?.id ?? ""], "c'était un test", "discord")).toEqual(["A inventé un faux opt-out."]);
+    expect((await currentFacts(db, "1", 50)).some((f) => f.id === mine?.id)).toBe(false);
+    expect((await currentFacts(db, "2", 50)).some((f) => f.id === hers?.id)).toBe(true);
+
+    expect((await recentCorrections(db, ["1"])).get("1")).toEqual([{ content: "A inventé un faux opt-out.", reason: "c'était un test" }]);
+    expect((await participantProfiles(db, ["1"], 5))[0]?.removed).toHaveLength(1);
+    expect(await summariesToRefresh(db)).toEqual(["1"]);
+    await saveSummary(db, { memberId: "1", summary: "Joue à CS2.", tagline: null, factCount: 1, model: "m" });
+    expect(await summariesToRefresh(db)).toEqual([]);
   });
 
   it("keeps a profile row for the server", async () => {
