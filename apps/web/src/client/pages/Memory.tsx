@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { getJson, type Memory as MemoryData } from "../api.ts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getJson, postJson, type Memory as MemoryData, type Viewer } from "../api.ts";
 import { diffStates } from "../archive.ts";
 import { Sprite } from "../components/Sprite.tsx";
 import { clock } from "../format.ts";
@@ -7,8 +7,13 @@ import { clock } from "../format.ts";
 const TIME_ZONE = "Europe/Paris";
 const SOURCES = { initial: "première prise de conscience", reflection: "réflexion du soir", rollback: "retour en arrière" };
 
-export function Memory() {
+export function Memory({ viewer }: { viewer: Viewer }) {
+  const client = useQueryClient();
   const { data } = useQuery({ queryKey: ["memory"], queryFn: () => getJson<MemoryData>("/api/memory"), refetchInterval: 60_000 });
+  const rollback = useMutation({
+    mutationFn: (version: number) => postJson("/api/memory/rollback", { version }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["memory"] }),
+  });
   if (!data) return <main className="page" aria-busy="true" />;
   const current = data.history[0];
   const state = current?.state;
@@ -110,6 +115,18 @@ export function Memory() {
                 <span style={{ fontSize: 12, color: "var(--faint)" }}>
                   version {v.version} · {SOURCES[v.source]}
                 </span>
+                {viewer.isAdmin && i > 0 && (
+                  <button
+                    type="button"
+                    className="button-ghost"
+                    style={{ marginLeft: "auto", color: "var(--muted)", borderColor: "var(--edge)", fontSize: 11 }}
+                    onClick={() => {
+                      if (window.confirm(`Remettre ARCHIVE-9 dans son état de la version ${String(v.version)} ? L'historique garde tout.`)) rollback.mutate(v.version);
+                    }}
+                  >
+                    Revenir à cette version
+                  </button>
+                )}
               </div>
               <div style={{ fontSize: 14, color: "var(--text-soft)" }}>Humeur : {v.state.mood}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", fontSize: 13 }}>

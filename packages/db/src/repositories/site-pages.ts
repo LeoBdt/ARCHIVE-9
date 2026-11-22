@@ -3,6 +3,8 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client.ts";
 import {
   actionsLog,
+  aiUsage,
+  decisions,
   feedback,
   members,
   messages,
@@ -11,6 +13,7 @@ import {
   relationshipEvents,
   relationships,
   selfStateVersions,
+  siteAdmins,
   skills,
 } from "../schema.ts";
 
@@ -218,4 +221,134 @@ export async function actionJournal(db: Database, limit = 100) {
     .where(inArray(actionsLog.status, ["done", "refused", "failed", "undone"]))
     .orderBy(desc(actionsLog.createdAt))
     .limit(limit);
+}
+
+const author = alias(members, "author");
+const authorName = sql<string>`coalesce(${author.displayName}, ${author.username}, 'quelqu''un')`;
+
+/** Its replies with their « why » and the cost of each run. DMs only for their member, or admins. */
+export async function replyJournal(db: Database, viewer: { id: string; isAdmin: boolean }, limit = 60) {
+  const dm = viewer.isAdmin ? sql`true` : sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id})`;
+  const rows = await db
+    .select({
+      id: decisions.id,
+      runId: decisions.runId,
+      outcome: decisions.outcome,
+      reason: decisions.reason,
+      channelName: decisions.channelName,
+      isDm: sql<boolean>`${decisions.guildId} is null`,
+      authorName,
+      content: decisions.content,
+      details: decisions.details,
+      createdAt: decisions.createdAt,
+    })
+    .from(decisions)
+    .leftJoin(author, eq(author.id, decisions.authorId))
+    .where(and(inArray(decisions.outcome, ["replied", "reacted", "silent", "offline"]), sql`(${decisions.addressed} or ${decisions.outcome} <> 'silent')`, dm))
+    .orderBy(desc(decisions.createdAt))
+    .limit(limit);
+  const runIds = rows.flatMap((r) => (r.runId ? [r.runId] : []));
+  const usage = runIds.length
+    ? await db
+        .select({
+          runId: aiUsage.runId,
+          model: sql<string>`(array_agg(${aiUsage.model} order by ${aiUsage.createdAt} desc) filter (where ${aiUsage.task} = 'reply'))[1]`,
+          provider: sql<string | null>`(array_agg(coalesce(${aiUsage.upstreamProvider}, ${aiUsage.provider}) order by ${aiUsage.createdAt} desc) filter (where ${aiUsage.task} = 'reply'))[1]`,
+          fallbackReason: sql<string | null>`max(${aiUsage.fallbackReason})`,
+          inputTokens: sql<number>`sum(${aiUsage.inputTokens})::int`,
+          outputTokens: sql<number>`sum(${aiUsage.outputTokens})::int`,
+          reasoningTokens: sql<number>`sum(${aiUsage.reasoningTokens})::int`,
+          costUsd: sql<number>`coalesce(sum(${aiUsage.costUsd}), 0)::float`,
+          durationMs: sql<number>`sum(${aiUsage.durationMs})::int`,
+        })
+        .from(aiUsage)
+        .where(inArray(aiUsage.runId, runIds))
+        .groupBy(aiUsage.runId)
+    : [];
+  const byRun = new Map(usage.map((u) => [u.runId, u]));
+  return rows.map(({ runId, ...r }) => ({ ...r, usage: runId ? (byRun.get(runId) ?? null) : null }));
+}
+
+/** The backstage page: the triage of everything it didn't answer, costs, ignored messages, errors. Public. */
+export async function backstage(db: Database) {
+  const since = new Date(Date.now() - DAY_MS);
+  const [[today], triage, costs, ignored, errors, [speed]] = await Promise.all([
+    db
+      .select({
+        seen: sql<number>`count(*)::int`,
+        replies: sql<number>`count(*) filter (where ${decisions.outcome} = 'replied')::int`,
+      })
+      .from(decisions)
+      .where(gte(decisions.createdAt, since)),
+    db
+      .select({
+        outcome: decisions.outcome,
+        reason: decisions.reason,
+        interest: decisions.interest,
+        channelName: decisions.channelName,
+        isDm: sql<boolean>`${decisions.guildId} is null`,
+        authorName,
+        createdAt: decisions.createdAt,
+      })
+      .from(decisions)
+      .leftJoin(author, eq(author.id, decisions.authorId))
+      .where(or(eq(decisions.outcome, "ignored"), and(eq(decisions.outcome, "silent"), eq(decisions.addressed, false))))
+      .orderBy(desc(decisions.createdAt))
+      .limit(60),
+    db
+      .select({
+        day: sql<string>`to_char(date_trunc('day', ${aiUsage.createdAt} at time zone 'Europe/Paris'), 'YYYY-MM-DD')`,
+        task: aiUsage.task,
+        costUsd: sql<number>`coalesce(sum(${aiUsage.costUsd}), 0)::float`,
+      })
+      .from(aiUsage)
+      .where(gte(aiUsage.createdAt, new Date(Date.now() - 7 * DAY_MS)))
+      .groupBy(sql`1`, aiUsage.task)
+      .orderBy(sql`1`),
+    db
+      .select({ reason: decisions.reason, n: sql<number>`count(*)::int` })
+      .from(decisions)
+      .where(and(eq(decisions.outcome, "ignored"), gte(decisions.createdAt, since)))
+      .groupBy(decisions.reason)
+      .orderBy(desc(sql`2`)),
+    db
+      .select({ model: aiUsage.model, task: aiUsage.task, status: aiUsage.status, fallbackReason: aiUsage.fallbackReason, createdAt: aiUsage.createdAt })
+      .from(aiUsage)
+      .where(and(gte(aiUsage.createdAt, since), or(sql`${aiUsage.status} <> 'ok'`, sql`${aiUsage.fallbackReason} is not null`)))
+      .orderBy(desc(aiUsage.createdAt))
+      .limit(20),
+    db
+      .select({ median: sql<number | null>`percentile_cont(0.5) within group (order by ${aiUsage.durationMs})` })
+      .from(aiUsage)
+      .where(and(eq(aiUsage.task, "reply"), eq(aiUsage.status, "ok"), gte(aiUsage.createdAt, since))),
+  ]);
+  const spent = costs.filter((c) => c.day >= new Date(Date.now() - DAY_MS).toISOString().slice(0, 10)).reduce((sum, c) => sum + c.costUsd, 0);
+  return {
+    today: { seen: today?.seen ?? 0, replies: today?.replies ?? 0, medianMs: speed?.median ?? null, spentToday: spent },
+    triage: triage.map((t) => (t.isDm ? { ...t, authorName: null, channelName: null, reason: t.outcome === "ignored" ? t.reason : null } : t)),
+    costs,
+    ignored,
+    errors,
+  };
+}
+
+/** Members the owner can name admin, with who already is. */
+export async function accessList(db: Database) {
+  return db
+    .select({ id: members.id, name: memberName, isAdmin: sql<boolean>`exists (select 1 from site_admins a where a.member_id = ${members.id})` })
+    .from(members)
+    .where(and(isNull(members.optedOutAt), eq(members.isServer, false), eq(members.isBot, false), eq(members.inGuild, true)))
+    .orderBy(asc(memberName));
+}
+
+export async function revokeSiteAdmin(db: Database, memberId: string): Promise<void> {
+  await db.delete(siteAdmins).where(eq(siteAdmins.memberId, memberId));
+}
+
+/** Puts an older self state back, as a new version: the history keeps everything. */
+export async function rollbackSelfState(db: Database, version: number, by: string): Promise<number | null> {
+  const [old] = await db.select({ state: selfStateVersions.state }).from(selfStateVersions).where(eq(selfStateVersions.version, version));
+  if (!old) return null;
+  const [row] = await db.insert(selfStateVersions).values({ state: old.state, source: "rollback", createdBy: by }).returning({ version: selfStateVersions.version });
+  return row?.version ?? null;
 }

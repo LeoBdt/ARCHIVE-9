@@ -1,4 +1,4 @@
-import { createDb, ensureWebRole, grantSiteAdmin, saveMessage, syncGuildMembers, WEB_DB_ROLE } from "@archive-9/db";
+import { applyAnalysis, createDb, currentFacts, ensureWebRole, grantSiteAdmin, readSettings, recordDecision, saveMessage, syncGuildMembers, WEB_DB_ROLE } from "@archive-9/db";
 import { createTestDatabase } from "@archive-9/db/test-utils";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,7 +30,7 @@ describe.skipIf(!url)("site server", () => {
     conn = createDb(test.url, { max: 2 });
     const member = (id: string, name: string) => ({ id, username: name, displayName: null, isBot: false, isKnownAiBot: false });
     await syncGuildMembers(conn.db, [member(OWNER, "leo"), member(MEMBER, "tom"), member(LEFT, "parti")]);
-    await syncGuildMembers(conn.db, [member(OWNER, "leo"), member(MEMBER, "tom")]);
+    await syncGuildMembers(conn.db, [member(OWNER, "leo"), member(MEMBER, "tom"), member("100000000000000004", "max")]);
     await saveMessage(conn.db, { id: "m1", guildId: "g", channelId: "c", authorId: MEMBER, content: "salut", replyToId: null, mentionedIds: [], createdAt: new Date() });
     const dir = await mkdtemp(join(tmpdir(), "a9-web-"));
     await writeFile(join(dir, "index.html"), "<!doctype html><head><!--link-preview--><title>ARCHIVE-9</title></head>");
@@ -94,6 +94,51 @@ describe.skipIf(!url)("site server", () => {
 
   it("answers unknown API routes with a 404", async () => {
     expect((await get("/api/nope", MEMBER)).status).toBe(404);
+  });
+
+  const post = (path: string, user: string, body: unknown, origin = "https://archive.example.org") =>
+    app.request(path, { method: "POST", headers: { "x-test-user": user, "content-type": "application/json", origin }, body: JSON.stringify(body) });
+
+  it("refuses writes coming from another site", async () => {
+    expect((await post("/api/settings", OWNER, { paused: true }, "https://evil.example")).status).toBe(403);
+  });
+
+  it("keeps settings to admins and the admin list to the owner", async () => {
+    expect((await get("/api/settings", "100000000000000004")).status).toBe(403);
+    expect((await post("/api/settings", OWNER, { spontaneity: 2 })).status).toBe(200);
+    expect((await readSettings(conn.db)).spontaneity).toBe(2);
+    expect((await post("/api/settings", OWNER, { spontaneity: 9 })).status).toBe(400);
+    expect((await get("/api/access", MEMBER)).status).toBe(403);
+    expect((await get("/api/access", OWNER)).status).toBe(200);
+    expect((await post("/api/access", OWNER, { memberId: OWNER, admin: false })).status).toBe(400);
+  });
+
+  it("lets a member correct only their own facts", async () => {
+    await applyAnalysis(conn.db, {
+      facts: [{ memberId: MEMBER, category: "identity", nature: "fact", confidence: 0.9, content: "En licence.", sourceMessageIds: [], reportedBy: null, replacesId: null }],
+      retractions: [],
+      relationships: [],
+      analysedIds: [],
+      at: new Date(),
+    });
+    const [fact] = await currentFacts(conn.db, MEMBER, 5);
+    expect((await post(`/api/me/facts/${fact?.id ?? ""}`, OWNER, { action: "correct", content: "Volé." })).status).toBe(404);
+    expect((await post(`/api/me/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "06 12 34 56 78 99" })).status).toBe(400);
+    expect((await post(`/api/me/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "En master." })).status).toBe(200);
+    expect((await currentFacts(conn.db, MEMBER, 5)).map((f) => f.content)).toEqual(["En master."]);
+  });
+
+  it("shows replies in the journal, DMs only to their member", async () => {
+    const reply = { channelId: "c", authorId: OWNER, outcome: "replied" as const, addressed: true, content: "salut", details: { sent: "yo" } };
+    await recordDecision(conn.db, { ...reply, messageId: "d1", guildId: "g", channelName: "général" });
+    await recordDecision(conn.db, { ...reply, messageId: "d2", guildId: null });
+    await recordDecision(conn.db, { channelId: "c", authorId: OWNER, outcome: "ignored", reason: "outside_agents", messageId: "d3", guildId: "g" });
+    const forMember = (await (await get("/api/journal", "100000000000000004")).json()) as { replies: { isDm: boolean }[] };
+    expect(forMember.replies.map((r) => r.isDm)).toEqual([false]);
+    const forOwner = (await (await get("/api/journal", OWNER)).json()) as { replies: unknown[] };
+    expect(forOwner.replies).toHaveLength(2);
+    const backstage = (await (await get("/api/coulisses", "100000000000000004")).json()) as { ignored: { reason: string; n: number }[] };
+    expect(backstage.ignored).toEqual([{ reason: "outside_agents", n: 1 }]);
   });
 
   it("gives the site a database user that reads but can't rewrite the archives", async () => {

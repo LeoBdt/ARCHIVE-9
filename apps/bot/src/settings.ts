@@ -1,4 +1,4 @@
-import { loadSettings, saveSetting, type BotSettings, type Database } from "@archive-9/db";
+import { loadSettings, readSettings, saveSetting, type BotSettings, type Database } from "@archive-9/db";
 
 /** In-memory copy of the settings, written through to the database. */
 export class SettingsStore {
@@ -21,6 +21,11 @@ export class SettingsStore {
   isListened(channelId: string, parentId: string | null): boolean {
     const ids = this.current.listenedChannelIds;
     return ids.includes(channelId) || (parentId !== null && ids.includes(parentId));
+  }
+
+  /** Picks up changes made elsewhere (the site). */
+  async reload(): Promise<void> {
+    this.current = await readSettings(this.db);
   }
 
   async set<K extends keyof BotSettings>(field: K, value: BotSettings[K], by: string | null): Promise<void> {

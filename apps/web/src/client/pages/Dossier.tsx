@@ -1,13 +1,89 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { getJson, HttpError, type Dossier as DossierData } from "../api.ts";
+import { getJson, HttpError, postJson, type Dossier as DossierData } from "../api.ts";
 import { CATEGORIES, CATEGORY_ORDER, reliability, signed, stamp } from "../archive.ts";
 import { Cabinet, CardList, Marks } from "../components/Cabinet.tsx";
 import { avatarColor, formatCount, initials } from "../format.ts";
 
 type Fact = DossierData["facts"][number];
 
-function FactCard({ fact, index }: { fact: Fact; index: number }) {
+/** The card pulled out of its drawer, pinned in the middle, to correct or remove it. */
+function EditCard({ fact, code, memberId, onClose }: { fact: Fact; code: string; memberId: string; onClose: () => void }) {
+  const client = useQueryClient();
+  const [text, setText] = useState(fact.content);
+  const [reason, setReason] = useState("");
+  const save = useMutation({
+    mutationFn: (action: "correct" | "remove") => postJson(`/api/me/facts/${fact.id}`, action === "remove" ? { action, reason } : { action, content: text, reason }),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["dossier", memberId] });
+      onClose();
+    },
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  return (
+    <>
+      <div className="veil" onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-labelledby="edit-title" className="edit-card">
+        <span className="tab">
+          {code} · {CATEGORIES[fact.category]?.label ?? fact.category}
+        </span>
+        <h2 id="edit-title" style={{ fontSize: 16 }}>
+          Corriger cette fiche
+        </h2>
+        <p className="ink">Ce que j'ai retenu : « {fact.content} »</p>
+        <label htmlFor="edit-text" className="ink-label">
+          La bonne version
+        </label>
+        <textarea
+          id="edit-text"
+          rows={3}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+          }}
+          autoFocus
+        />
+        <label htmlFor="edit-why" className="ink-label">
+          Pourquoi (obligatoire pour retirer)
+        </label>
+        <input
+          id="edit-why"
+          value={reason}
+          placeholder="ex. : je suis en master, pas en licence"
+          onChange={(e) => {
+            setReason(e.target.value);
+          }}
+        />
+        {save.error && <p className="ink" style={{ color: "#8a2a33" }}>{save.error.message}</p>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 4 }}>
+          <button type="button" className="ink-button" disabled={save.isPending || text.trim() === fact.content} onClick={() => { save.mutate("correct"); }}>
+            Corriger
+          </button>
+          <button type="button" className="ink-button ghost" disabled={save.isPending || reason.trim().length < 3} onClick={() => { save.mutate("remove"); }}>
+            Retirer la fiche
+          </button>
+          <button type="button" className="ink-button plain" onClick={onClose}>
+            Annuler
+          </button>
+        </div>
+        <p className="ink" style={{ fontSize: 12 }}>
+          Je n'apprendrai plus l'ancienne version.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function FactCard({ fact, index, onEdit }: { fact: Fact; index: number; onEdit?: () => void }) {
   const s = stamp(fact.nature, fact.reportedByName);
   const lit = reliability(fact.confidence);
   return (
@@ -23,11 +99,20 @@ function FactCard({ fact, index }: { fact: Fact; index: number }) {
           {s.text}
         </span>
       </div>
-      {fact.source && (
-        <a href={fact.source} target="_blank" rel="noreferrer noopener">
-          source ↗
-        </a>
-      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {fact.source ? (
+          <a href={fact.source} target="_blank" rel="noreferrer noopener">
+            source ↗
+          </a>
+        ) : (
+          <span />
+        )}
+        {onEdit && (
+          <button type="button" className="card-action" onClick={onEdit}>
+            modifier
+          </button>
+        )}
+      </div>
     </article>
   );
 }
@@ -80,6 +165,7 @@ function Relation({ data }: { data: DossierData }) {
 export function Dossier() {
   const { id = "" } = useParams();
   const { data, error } = useQuery({ queryKey: ["dossier", id], queryFn: () => getJson<DossierData>(`/api/dossiers/${id}`) });
+  const [editing, setEditing] = useState<{ fact: Fact; code: string } | null>(null);
 
   if (error instanceof HttpError && error.status === 404)
     return (
@@ -104,7 +190,28 @@ export function Dossier() {
       label: meta.label,
       color: meta.color,
       count: facts.length,
-      content: <CardList items={facts} label={meta.label} render={(fact, i) => <FactCard fact={fact} index={first + i} />} />,
+      content: (
+        <CardList
+          items={facts}
+          label={meta.label}
+          render={(fact, i) => {
+            const code = `F${String(first + i + 1).padStart(3, "0")}`;
+            return (
+              <FactCard
+                fact={fact}
+                index={first + i}
+                onEdit={
+                  data.isMine
+                    ? () => {
+                        setEditing({ fact, code });
+                      }
+                    : undefined
+                }
+              />
+            );
+          }}
+        />
+      ),
     };
   });
 
@@ -185,12 +292,22 @@ export function Dossier() {
             <section className="panel px-dim">
               <h2>C'est ton dossier</h2>
               <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
-                Tu peux me demander sur Discord de corriger ou de retirer une fiche, ou disparaître avec <code>/oublie-moi</code>. Bientôt, directement ici.
+                « modifier » sur une fiche pour la corriger ou la retirer. Pour disparaître de mes archives : <code>/oublie-moi</code> sur Discord.
               </p>
             </section>
           )}
         </aside>
       </div>
+      {editing && (
+        <EditCard
+          fact={editing.fact}
+          code={editing.code}
+          memberId={data.id}
+          onClose={() => {
+            setEditing(null);
+          }}
+        />
+      )}
     </main>
   );
 }

@@ -111,7 +111,52 @@ export interface SkillView {
   createdAt: string;
 }
 
+export interface ReplyEntry {
+  id: string;
+  outcome: "replied" | "reacted" | "silent" | "offline";
+  reason: string | null;
+  channelName: string | null;
+  isDm: boolean;
+  authorName: string;
+  content: string | null;
+  details: { context?: string[]; reasoning?: string | null; steps?: { tool: string; summary: string }[]; sent?: string | null } | null;
+  createdAt: string;
+  usage: { model: string | null; provider: string | null; fallbackReason: string | null; inputTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number; durationMs: number } | null;
+}
+
+export interface Backstage {
+  today: { seen: number; replies: number; medianMs: number | null; spentToday: number };
+  triage: { outcome: "ignored" | "silent"; reason: string | null; interest: number | null; channelName: string | null; isDm: boolean; authorName: string | null; createdAt: string }[];
+  costs: { day: string; task: string; costUsd: number }[];
+  ignored: { reason: string | null; n: number }[];
+  errors: { model: string; task: string; status: string; fallbackReason: string | null; createdAt: string }[];
+  paused: boolean;
+}
+
+export interface SettingsView {
+  paused: boolean;
+  spontaneity: number;
+  showFallbackTag: boolean;
+  listenedChannelIds: string[];
+  channels: { id: string; name: string; category: string | null }[];
+}
+
+export interface AccessRow {
+  id: string;
+  name: string;
+  isAdmin: boolean;
+  isOwner: boolean;
+}
+
+export async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? `HTTP ${String(response.status)}`);
+  return data;
+}
+
 export interface Journal {
+  replies: ReplyEntry[];
   actions: { id: string; tool: string; tier: "free" | "controlled"; params: Record<string, unknown>; status: "done" | "refused" | "failed" | "undone"; refusalReason: string | null; requestedBy: string | null; createdAt: string; undoneAt: string | null }[];
   events: Home["feed"];
 }

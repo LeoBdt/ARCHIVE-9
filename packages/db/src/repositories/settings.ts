@@ -13,6 +13,8 @@ export interface BotSettings {
   statusLines: string[];
   /** Written by the bot at start-up, read by the site. */
   botVersion: { label: string; startedAt: string } | null;
+  /** The server's text channels, published by the bot so the site can name them. */
+  channelDirectory: { id: string; name: string; category: string | null }[];
 }
 
 const KEYS = {
@@ -23,6 +25,7 @@ const KEYS = {
   debounceMs: "debounce_ms",
   statusLines: "status_lines",
   botVersion: "bot_version",
+  channelDirectory: "channel_directory",
 } as const satisfies Record<keyof BotSettings, string>;
 
 export const DEFAULT_SETTINGS: BotSettings = {
@@ -33,6 +36,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   debounceMs: 8_000,
   statusLines: [],
   botVersion: null,
+  channelDirectory: [],
 };
 
 /** Reads all settings, writing `seed` values for any key that was never set. */

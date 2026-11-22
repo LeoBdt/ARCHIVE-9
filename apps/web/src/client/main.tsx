@@ -13,6 +13,8 @@ import { Boot } from "./components/Boot.tsx";
 import { Header } from "./components/Header.tsx";
 import { Access } from "./pages/Access.tsx";
 import { Archives } from "./pages/Archives.tsx";
+import { Coulisses } from "./pages/Coulisses.tsx";
+import { Settings } from "./pages/Settings.tsx";
 import { Dossier } from "./pages/Dossier.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Journal } from "./pages/Journal.tsx";
@@ -38,9 +40,11 @@ function Site() {
         <Route path="/archives" element={<Archives />} />
         <Route path="/archives/:id" element={<Dossier />} />
         <Route path="/relations" element={<Relations />} />
-        <Route path="/memoire" element={<Memory />} />
+        <Route path="/memoire" element={<Memory viewer={viewer} />} />
         <Route path="/skills" element={<Skills />} />
         <Route path="/journal" element={<Journal />} />
+        <Route path="/coulisses" element={<Coulisses />} />
+        <Route path="/reglages" element={<Settings viewer={viewer} />} />
         <Route path="*" element={<Soon />} />
       </Routes>
     </>
