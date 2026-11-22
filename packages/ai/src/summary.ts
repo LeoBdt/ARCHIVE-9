@@ -18,8 +18,8 @@ export interface SummaryFact {
 export interface SummaryInput {
   name: string;
   isBot: boolean;
-  /** Set for the server's own profile. */
-  server?: { description: string };
+  /** The server's own profile. */
+  isServer?: boolean;
   feeling: string | null;
   /** Most recent first. */
   facts: SummaryFact[];
@@ -53,8 +53,8 @@ export function buildSummaryPrompt(input: SummaryInput): string {
     const nature = f.nature === "reported" && f.reportedByName ? `rapporté par ${f.reportedByName}` : NATURES[f.nature];
     return `- [${f.category} · ${nature} · ${f.confidence.toFixed(1)}] ${f.content}`;
   });
-  const header = input.server
-    ? `Serveur : ${input.name}\nDescription des admins : ${input.server.description.trim() || "(aucune)"}\n`
+  const header = input.isServer
+    ? `Serveur : ${input.name}\n`
     : `Membre : ${input.name}${input.isBot ? " (un autre bot IA du serveur)" : ""}
 ${input.feeling ? `Ce qu'ARCHIVE-9 ressent pour lui : ${input.feeling}\n` : ""}`;
   return `${header}
@@ -65,7 +65,7 @@ ${facts.join("\n")}
 
 export async function summarise(ai: AiRuntime, input: SummaryInput): Promise<SummaryOutcome> {
   const prompt = buildSummaryPrompt(input);
-  const instructions = input.server ? SERVER_SUMMARY_SYSTEM : SUMMARY_SYSTEM;
+  const instructions = input.isServer ? SERVER_SUMMARY_SYSTEM : SUMMARY_SYSTEM;
   const outcome = await ai.generate(
     "analysis",
     ({ model, providerOptions }) =>
@@ -86,7 +86,7 @@ export async function summarise(ai: AiRuntime, input: SummaryInput): Promise<Sum
   );
   if (!outcome.ok) return { summary: null, ref: null, usage: outcome.usage };
   const raw = readStructured(outcome.result, summarySchema);
-  const max = input.server ? 1_000 : 700;
+  const max = input.isServer ? 1_000 : 700;
   const summary = raw ? { summary: truncate(raw.summary.trim(), max), tagline: truncate(raw.tagline.trim(), 140) } : null;
   return { summary: summary?.summary ? summary : null, ref: outcome.ref, usage: outcome.usage };
 }

@@ -98,13 +98,13 @@ describe("buildAnalysisPrompt", () => {
 });
 
 describe("server profile", () => {
-  const server = { id: "500", name: "Le Royaume", description: "Serveur sur invitation fondé par Bluzzi.", summary: "Débats CS2." };
+  const server = { id: "500", name: "Le Royaume", summary: "Débats CS2." };
 
   it("describes the server in the analysis prompt", () => {
     const prompt = buildAnalysisPrompt({ ...input, server });
-    expect(prompt).toContain("## Le serveur\nNom : Le Royaume.\nCe que les admins en disent : Serveur sur invitation fondé par Bluzzi.\nCe que tu en as appris : Débats CS2.");
+    expect(prompt).toContain("## Le serveur\nNom : Le Royaume (ID 500).\nCe que tu en as appris : Débats CS2.");
     expect(prompt).toContain("- Le Royaume (ID 500) · le serveur lui-même");
-    expect(describeServer({ ...server, description: " ", summary: null })).toBe("Nom : Le Royaume.");
+    expect(describeServer({ ...server, summary: null })).toBe("Nom : Le Royaume (ID 500).");
   });
 
   it("keeps group facts as they are and gives the server no relationship", () => {
@@ -121,13 +121,14 @@ describe("server profile", () => {
   });
 
   it("has its own summary prompt", async () => {
-    const summaryInput = { name: "Le Royaume", isBot: false, server: { description: "Fondé par Bluzzi." }, feeling: null, facts: [] };
-    expect(buildSummaryPrompt(summaryInput)).toContain("Serveur : Le Royaume\nDescription des admins : Fondé par Bluzzi.");
-    expect(buildSummaryPrompt({ ...summaryInput, server: { description: "" } })).toContain("(aucune)");
+    const summaryInput = { name: "Le Royaume", isBot: false, isServer: true, feeling: null, facts: [] };
+    expect(buildSummaryPrompt(summaryInput)).toContain("Serveur : Le Royaume\n");
     const model = mockModel(mockResult(text(JSON.stringify({ summary: "x".repeat(1200), tagline: "t" }))));
     const outcome = await summarise(new AiRuntime(routes, mockResolver({ "openrouter:main": model })), summaryInput);
     expect(outcome.summary?.summary).toHaveLength(1000);
-    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain("garde sur le serveur Discord");
+    const sent = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(sent).toContain("garde sur le serveur Discord");
+    expect(sent).toContain("Le Royaume est le nom de ce serveur");
   });
 });
 
@@ -280,8 +281,8 @@ describe("reflect", () => {
   });
 
   it("reads a whole history in awakening mode", async () => {
-    const prompt = buildReflectionPrompt({ ...reflection, mode: "awakening", server: { id: "500", name: "Le Royaume", description: "", summary: null } });
-    expect(prompt).toContain("## Le serveur\nNom : Le Royaume.");
+    const prompt = buildReflectionPrompt({ ...reflection, mode: "awakening", server: { id: "500", name: "Le Royaume", summary: null } });
+    expect(prompt).toContain("## Le serveur\nNom : Le Royaume (ID 500).");
     expect(prompt).toContain("## Ce que tu as appris sur les membres");
     expect(prompt).toContain("## Les conversations marquantes du mois");
     const awakening = {

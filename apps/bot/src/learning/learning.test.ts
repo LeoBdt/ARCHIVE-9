@@ -82,7 +82,7 @@ describe.skipIf(!url)("learning cycle", () => {
       selfId: SELF,
       timezone: "Europe/Paris",
       channelName: () => "général",
-      server: { id: "500000000000000000", description: () => "Le Royaume, serveur de potes." },
+      server: { id: "500000000000000000" },
     };
     await ensureServerProfile(db, "500000000000000000", "Le Royaume");
     await upsertMember(db, { id: SELF, username: "ARCHIVE-9", displayName: null, isBot: true, isKnownAiBot: false });

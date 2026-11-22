@@ -120,7 +120,7 @@ flowchart LR
 - Relationship changes are capped at ±5 per batch and ±15 per member over 24 hours, counted from when the conversation happened. Relationship rows created by the analysis don't count as an introduction.
 - A batch is written in one transaction, which also marks its messages as analysed. Then each member whose facts changed gets a new summary (≤ 700 characters, read by the reply prompt) and a tagline (one line in ARCHIVE-9's voice, shown in `/mafiche`). A member with no fact left loses their summary.
 - Utility bots get no profile. Known AI bots do.
-- The server has its own profile: a `members` row keyed by the guild ID with `is_server`, listed among the participants of every batch. Group-level facts go there (history, events, traditions, collective jokes, vocabulary), never as `reported`, and it has no relationship. Its summary (≤ 1000 characters) is written apart from the admins' description, which every analysis, reply and reflection prompt also gets (`/config serveur`).
+- The server has its own profile: a `members` row keyed by the guild ID with `is_server`, listed among the participants of every batch. Group-level facts go there (history, events, traditions, collective jokes, vocabulary), never as `reported`, and it has no relationship. Its summary (≤ 1000 characters) leaves out the fixed description of the server (`packages/ai/src/prompts/server.ts`), which is part of the persona and of the analysis and summary instructions.
 - Analysis spending is capped by `ANALYSIS_DAILY_BUDGET_USD` over the last 24 hours. A failed batch stays pending and is retried an hour later. A Postgres advisory lock keeps two processes from analysing at once.
 - After each run, `pg_notify('archive9', …)` announces the change.
 
@@ -154,7 +154,7 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 |---|---|---|
 | `/archive-9` | everyone | introduction |
 | `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
-| `/serveur` | everyone | what ARCHIVE-9 knows about the server: the admins' description, its learned summary |
+| `/serveur` | everyone | what ARCHIVE-9 knows about the server: its fixed description and learned summary |
 | `/oublie-moi` | everyone | deletes the member's messages (their DM conversations entirely), facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
 | `/config etat \| ecoute \| serveur \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, describe the server (a form, up to 2000 characters), spontaneity level, fallback tag |

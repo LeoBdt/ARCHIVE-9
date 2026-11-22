@@ -47,8 +47,6 @@ export interface AnalysisConversation {
 export interface ServerContext {
   id: string;
   name: string;
-  /** Written by an admin. */
-  description: string;
   /** What ARCHIVE-9 learned about the server. */
   summary: string | null;
 }
@@ -186,10 +184,9 @@ ${input.participants.map((p) => describeParticipant(p, refOf)).join("\n") || "- 
 ${conversations.join("\n\n")}`;
 }
 
-/** The server section shared by the analysis, reply and reflection prompts. */
+/** The learned part of the server, shared by the analysis, reply and reflection prompts. */
 export function describeServer(server: ServerContext): string {
-  const lines = [`Nom : ${server.name}.`];
-  if (server.description.trim()) lines.push(`Ce que les admins en disent : ${server.description.trim()}`);
+  const lines = [`Nom : ${server.name} (ID ${server.id}).`];
   if (server.summary) lines.push(`Ce que tu en as appris : ${server.summary}`);
   return lines.join("\n");
 }

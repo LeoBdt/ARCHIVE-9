@@ -30,7 +30,7 @@ export interface TriageOutcome {
   usage: UsageRecord[];
 }
 
-export const TRIAGE_SYSTEM = `Tu lis une conversation Discord entre potes, où vit ARCHIVE-9, une IA sarcastique. Tu juges le dernier message (◀ message cible) sur deux axes, comme le ferait un humain.
+export const TRIAGE_SYSTEM = `Tu lis une conversation Discord entre potes, où vit ARCHIVE-9, une IA d'archivage avec de l'humour. Tu juges le dernier message (◀ message cible) sur deux axes, comme le ferait un humain.
 
 1. addressed : est-ce que ce message s'adresse à ARCHIVE-9 ?
 - true s'il lui répond, l'appelle (même sans mention), parle de lui en attendant une réaction, le taquine, réagit à ce qu'il vient de dire, ou poursuit avec lui le sujet qu'il discutait, même si un autre bot s'est intercalé.

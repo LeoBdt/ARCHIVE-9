@@ -192,7 +192,7 @@ const lock = await withAdvisoryLock(client, ANALYSIS_LOCK, async () => {
     selfId: self.id,
     timezone: env.BOT_TIMEZONE,
     channelName: (id: string) => channels.get(id) ?? null,
-    server: { id: guild.id, description: () => settings.serverDescription },
+    server: { id: guild.id },
   };
   const report = await runAnalysis(
     deps,

@@ -170,7 +170,7 @@ export async function refreshSummaries(deps: LearningDeps, memberIds: string[], 
     const outcome = await summarise(ai, {
       name: person.name,
       isBot: person.isBot,
-      server: person.isServer ? { description: deps.server.description() } : undefined,
+      isServer: person.isServer,
       feeling: relations.get(memberId)?.feeling ?? null,
       facts,
     });

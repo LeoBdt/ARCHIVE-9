@@ -48,7 +48,7 @@ const discord = new Client({
 });
 
 const ingest = new Ingest({ db, settings, knownAiBotIds });
-const server = { id: env.DISCORD_GUILD_ID, description: () => settings.value.serverDescription };
+const server = { id: env.DISCORD_GUILD_ID };
 let pipeline: Pipeline | undefined;
 let stopJobs: (() => void) | undefined;
 

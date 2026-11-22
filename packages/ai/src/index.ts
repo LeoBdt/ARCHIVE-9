@@ -2,6 +2,7 @@ export * from "./analysis.ts";
 export * from "./canned.ts";
 export * from "./cooldowns.ts";
 export * from "./models.ts";
+export * from "./prompts/server.ts";
 export * from "./reflection.ts";
 export * from "./reply.ts";
 export * from "./routes.ts";

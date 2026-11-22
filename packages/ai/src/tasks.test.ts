@@ -2,7 +2,8 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { INITIAL_SELF_STATE, OFFLINE_LINES, pickOfflineLine } from "./canned.ts";
-import { buildReplyPrompt, reply, type ReplyInput } from "./reply.ts";
+import { SERVER_DESCRIPTION } from "./prompts/server.ts";
+import { buildReplyPrompt, REPLY_SYSTEM, reply, type ReplyInput } from "./reply.ts";
 import { parseRoute } from "./routes.ts";
 import { AiRuntime, type Routes } from "./runtime.ts";
 import { mockModel, mockResolver, mockResult, text, toolCall } from "./test-utils.ts";
@@ -95,8 +96,8 @@ describe("buildReplyPrompt", () => {
   });
 
   it("tells it about the server", () => {
-    const prompt = buildReplyPrompt({ ...baseInput, server: { id: "5", name: "Le Royaume", description: "Fondé par Bluzzi.", summary: null } });
-    expect(prompt).toContain("## Le serveur\nNom : Le Royaume.\nCe que les admins en disent : Fondé par Bluzzi.");
+    const prompt = buildReplyPrompt({ ...baseInput, server: { id: "5", name: "Le Royaume", summary: "Débats CS2." } });
+    expect(prompt).toContain("## Le serveur\nNom : Le Royaume (ID 5).\nCe que tu en as appris : Débats CS2.");
     expect(buildReplyPrompt(baseInput)).not.toContain("## Le serveur");
   });
 });
@@ -113,6 +114,13 @@ describe("reply", () => {
     expect(factory).toHaveBeenCalledWith(expect.objectContaining({ id: "groq:main" }), false);
     expect(send).toHaveBeenCalledOnce();
     expect(model.doGenerateCalls).toHaveLength(1);
+  });
+});
+
+describe("persona", () => {
+  it("knows the server and keeps the sarcasm occasional", () => {
+    expect(REPLY_SYSTEM).toContain(SERVER_DESCRIPTION);
+    expect(REPLY_SYSTEM).toContain("Ne termine pas tes messages par une provocation");
   });
 });
 
