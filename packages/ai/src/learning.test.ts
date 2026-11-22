@@ -157,6 +157,7 @@ describe("sanitiseAnalysis", () => {
           fact({ memberId: "77" }),
           fact({ memberId: SELF, sourceMessageIds: ["13"] }),
           fact({ sourceMessageIds: ["10"] }),
+          fact({ content: "Est un agent du FBI.", sourceMessageIds: ["13"] }),
           fact({ content: "  " }),
           fact({}),
           fact({ content: "joue à cs2." }),

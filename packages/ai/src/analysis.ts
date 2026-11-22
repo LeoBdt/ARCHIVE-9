@@ -221,7 +221,8 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
     const content = cleanText(f.content, 200);
     if (!members.has(memberId) || !content || seen.has(`${memberId}:${content.toLowerCase()}`)) continue;
     const sources = [...new Set(f.sourceMessageIds.map(cleanId))].filter((id) => authorOf.has(id));
-    if (sources.length === 0) continue;
+    // ARCHIVE-9's own words (jokes, delirium, mistakes) are never enough to learn something.
+    if (!sources.some((id) => authorOf.get(id) !== input.selfId)) continue;
 
     const sourceAuthors = sources.map((id) => authorOf.get(id) ?? "");
     // The server never writes: its facts are never "reported" by someone.
