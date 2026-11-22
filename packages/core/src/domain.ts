@@ -25,11 +25,14 @@ export type AiCallStatus = (typeof AI_CALL_STATUSES)[number];
 export const ACTION_TIERS = ["free", "controlled"] as const;
 export type ActionTier = (typeof ACTION_TIERS)[number];
 
-export const ACTION_STATUSES = ["done", "refused", "failed", "undone"] as const;
+export const ACTION_STATUSES = ["done", "refused", "failed", "undone", "pending", "cancelled"] as const;
 export type ActionStatus = (typeof ACTION_STATUSES)[number];
 
 export const SELF_STATE_SOURCES = ["initial", "reflection", "rollback"] as const;
 export type SelfStateSource = (typeof SELF_STATE_SOURCES)[number];
+
+export const SKILL_KINDS = ["triggered", "permanent"] as const;
+export type SkillKind = (typeof SKILL_KINDS)[number];
 
 export const AFFINITY_RANGE = { min: -100, max: 100 } as const;
 export const TRUST_RANGE = { min: 0, max: 100 } as const;

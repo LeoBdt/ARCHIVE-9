@@ -1,5 +1,20 @@
 import { INTRODUCTION, SERVER_DESCRIPTION } from "@archive-9/ai";
-import { currentFacts, forgetMember, optBackIn, profileOverview, runForMessage, type CurrentFact, type Database } from "@archive-9/db";
+import {
+  currentFacts,
+  deleteSkill,
+  findActiveSkill,
+  forgetMember,
+  getAction,
+  listSkills,
+  markUndone,
+  optBackIn,
+  profileOverview,
+  recentControlledActions,
+  reopenAction,
+  runForMessage,
+  type CurrentFact,
+  type Database,
+} from "@archive-9/db";
 import {
   ActionRowBuilder,
   ApplicationCommandType,
@@ -15,9 +30,12 @@ import {
   type MessageContextMenuCommandInteraction,
 } from "discord.js";
 import { truncate } from "@archive-9/core";
-import { SPONTANEITY_LEVELS, spontaneity } from "@archive-9/core";
+import { SKILL_LIMITS, SPONTANEITY_LEVELS, spontaneity } from "@archive-9/core";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
+import { handleConfirmation } from "./tools/confirm.ts";
+import { SKILL_CHECK_DETAIL } from "./tools/skills.ts";
+import { undoAction } from "./tools/undo.ts";
 
 const ADMIN = PermissionFlagsBits.ManageGuild;
 const ephemeral = MessageFlags.Ephemeral;
@@ -53,6 +71,14 @@ export const COMMANDS = [
         .setDescription("Afficher le modèle utilisé quand il répond en mode secours")
         .addBooleanOption((o) => o.setName("actif").setDescription("activer").setRequired(true)),
     ),
+  new SlashCommandBuilder()
+    .setName("skills")
+    .setDescription("Les skills qu'on a apprises à ARCHIVE-9")
+    .addStringOption((o) => o.setName("supprimer").setDescription("nom d'une skill à supprimer (la tienne, ou n'importe laquelle pour un admin)")),
+  new SlashCommandBuilder()
+    .setName("actions")
+    .setDescription("Les dernières actions d'ARCHIVE-9 sur le serveur, pour les annuler")
+    .setDefaultMemberPermissions(ADMIN),
   new ContextMenuCommandBuilder().setName("Diagnostic").setType(ApplicationCommandType.Message),
 ].map((command) => command.toJSON());
 
@@ -62,6 +88,9 @@ export interface CommandDeps {
   log: Logger;
   selfId: string;
   guildId: string;
+  agentsCategoryId: string | null;
+  version: string;
+  presence: { show: () => void };
 }
 
 function onOff(value: boolean): string {
@@ -167,10 +196,12 @@ async function config(i: ChatInputCommandInteraction, deps: CommandDeps) {
   const s = settings.value;
   await i.reply({
     content: [
+      `Version : ${deps.version}`,
       `Pause : ${s.paused ? "oui" : "non"}`,
       `Spontanéité : ${String(s.spontaneity)} · ${spontaneity(s.spontaneity).name}`,
       `Mention de secours : ${onOff(s.showFallbackTag)}`,
       `Salons écoutés : ${s.listenedChannelIds.map((id) => `<#${id}>`).join(", ") || "aucun"}`,
+      `Statut : ${s.statusLines[0] ?? "aucun pour l'instant"}`,
     ].join("\n"),
     flags: ephemeral,
   });
@@ -199,8 +230,9 @@ async function diagnostic(i: MessageContextMenuCommandInteraction, deps: Command
     return;
   }
   const replyRow = rows.findLast((r) => r.task === "reply");
-  const triageRow = rows.find((r) => r.task === "triage" && r.status === "ok");
+  const triageRow = rows.find((r) => r.task === "triage" && r.status === "ok" && !r.detail?.startsWith(SKILL_CHECK_DETAIL));
   const lines = [`**Diagnostic** · ${replyRow?.fallbackReason ? "mode secours" : "noyau principal"}`];
+  lines.push(`Version : ${replyRow?.version ?? "antérieure au suivi des versions"}`);
   if (replyRow) {
     lines.push(`Modèle : \`${replyRow.model}\` via ${replyRow.provider}${replyRow.upstreamProvider ? ` (${replyRow.upstreamProvider})` : ""}`);
     if (replyRow.fallbackReason) lines.push(`Secours : ${replyRow.fallbackReason}`);
@@ -216,7 +248,115 @@ async function diagnostic(i: MessageContextMenuCommandInteraction, deps: Command
   await i.reply({ content: lines.join("\n"), flags: ephemeral });
 }
 
+type SkillList = Awaited<ReturnType<typeof listSkills>>;
+
+/** The /skills answer, kept under Discord's 2000 characters. */
+export function formatSkills(skills: SkillList): string {
+  if (skills.length === 0) return "Aucune skill pour l'instant. Apprends-m'en une : dis-moi ce que je dois faire, et quand.";
+  const lines = [`**Skills** · ${String(skills.length)}/${String(SKILL_LIMITS.total)}`];
+  for (const s of skills) {
+    const when = s.kind === "permanent" ? "toujours" : `si « ${s.triggers.join(", ")} »`;
+    const line = `- **${s.name}** · ${when} · par ${s.authorId ? `<@${s.authorId}>` : "un ancien membre"} · ${String(s.usageCount)} fois\n  ${truncate(s.rule, 120)}`;
+    if (lines.join("\n").length + line.length > 1_950) {
+      lines.push("-# …et d'autres.");
+      break;
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+async function skillsCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
+  const name = i.options.getString("supprimer");
+  if (!name) {
+    await i.reply({ content: formatSkills(await listSkills(deps.db)), flags: ephemeral, allowedMentions: { parse: [] } });
+    return;
+  }
+  const skill = await findActiveSkill(deps.db, name);
+  if (!skill) {
+    await i.reply({ content: "Aucune skill de ce nom.", flags: ephemeral });
+    return;
+  }
+  if (skill.authorId !== i.user.id && !i.memberPermissions?.has(ADMIN)) {
+    await i.reply({ content: "Seuls son auteur et les admins peuvent la supprimer.", flags: ephemeral });
+    return;
+  }
+  await deleteSkill(deps.db, skill.id, i.user.id);
+  await i.reply({ content: `Skill **${skill.name}** supprimée.`, flags: ephemeral });
+}
+
+type ActionRow = Awaited<ReturnType<typeof recentControlledActions>>[number];
+
+export function describeAction(a: Pick<ActionRow, "tool" | "params" | "previousValue">): string {
+  const p = a.params;
+  const prev = a.previousValue ?? {};
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  switch (a.tool) {
+    case "createChannel":
+      return `salon créé : #${text(p.name)}`;
+    case "renameChannel":
+      return `salon renommé : #${text(prev.name)} → ${text(p.name)}`;
+    case "renameMember":
+      return `pseudo de <@${text(p.memberId)}> → ${text(p.nickname) || "(remis à zéro)"}`;
+    case "setRole":
+      return `rôle ${text(p.role)} ${p.give ? "donné à" : "retiré à"} <@${text(p.memberId)}>`;
+    case "pinMessage":
+      return `message épinglé dans <#${text(prev.channelId)}>`;
+    default:
+      return a.tool;
+  }
+}
+
+async function actionsCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
+  const actions = await recentControlledActions(deps.db, 10);
+  if (actions.length === 0) {
+    await i.reply({ content: "Aucune action pour l'instant.", flags: ephemeral });
+    return;
+  }
+  const lines = actions.map((a, n) => {
+    const when = `<t:${String(Math.floor(a.createdAt.getTime() / 1000))}:R>`;
+    const by = a.requestedBy ? ` · demandé par <@${a.requestedBy}>` : "";
+    return `**${String(n + 1)}.** ${describeAction(a)}${by} · ${when}${a.status === "undone" ? " · *annulée*" : ""}`;
+  });
+  const buttons = actions.flatMap((a, n) =>
+    a.status === "done" ? [new ButtonBuilder().setCustomId(`undo:${a.id}`).setLabel(`Annuler ${String(n + 1)}`).setStyle(ButtonStyle.Secondary)] : [],
+  );
+  const rows = [];
+  for (let k = 0; k < buttons.length; k += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(k, k + 5)));
+  await i.reply({ content: truncate(lines.join("\n"), 2_000), components: rows, flags: ephemeral, allowedMentions: { parse: [] } });
+}
+
+async function undo(i: ButtonInteraction, deps: CommandDeps, actionId: string) {
+  if (!i.memberPermissions?.has(ADMIN) || !i.guild) {
+    await i.reply({ content: "Réservé aux admins.", flags: ephemeral });
+    return;
+  }
+  const action = await getAction(deps.db, actionId);
+  if (!action || !(await markUndone(deps.db, actionId, i.user.id))) {
+    await i.reply({ content: "Cette action est déjà annulée.", flags: ephemeral });
+    return;
+  }
+  try {
+    const done = await undoAction(i.guild, action, i.user.username);
+    deps.log.info({ actionId, by: i.user.id }, "action undone");
+    await i.reply({ content: `Annulé : ${done}.`, flags: ephemeral });
+  } catch (error) {
+    await reopenAction(deps.db, actionId);
+    deps.log.warn({ err: error, actionId }, "undo failed");
+    await i.reply({ content: "Impossible d'annuler : Discord a refusé (droits, salon ou membre disparu).", flags: ephemeral });
+  }
+}
+
 async function onButton(i: ButtonInteraction, deps: CommandDeps) {
+  const [kind = "", id = ""] = i.customId.split(":");
+  if (kind === "confirm" || kind === "reject") {
+    await handleConfirmation(i, deps, kind === "confirm", id);
+    return;
+  }
+  if (i.customId.startsWith("undo:")) {
+    await undo(i, deps, i.customId.slice("undo:".length));
+    return;
+  }
   const [action, userId] = i.customId.split(":");
   if (userId !== i.user.id) {
     await i.reply({ content: "Ce bouton ne t'est pas destiné.", flags: ephemeral });
@@ -250,14 +390,22 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
       break;
     case "pause":
       await deps.settings.set("paused", true, i.user.id);
+      deps.presence.show();
       await i.reply("Mise en veille. Je ne dis plus rien, mais j'écoute toujours.");
       break;
     case "reprendre":
       await deps.settings.set("paused", false, i.user.id);
+      deps.presence.show();
       await i.reply("Noyau relancé.");
       break;
     case "config":
       await config(i, deps);
+      break;
+    case "skills":
+      await skillsCommand(i, deps);
+      break;
+    case "actions":
+      await actionsCommand(i, deps);
       break;
   }
 }

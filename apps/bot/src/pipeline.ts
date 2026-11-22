@@ -10,6 +10,7 @@ import {
   type UsageRecord,
 } from "@archive-9/ai";
 import {
+  AGENTS_BOT_LOOP_LIMITS,
   AmbientBudget,
   BotLoopGuard,
   KeyedDebouncer,
@@ -17,9 +18,12 @@ import {
   createNameMatcher,
   decideIngress,
   formatTranscript,
+  selectSkills,
   type TranscriptMessage,
 } from "@archive-9/core";
 import {
+  activeSkills,
+  aiCostSince,
   currentSelfState,
   lastMessageAt,
   memberContexts,
@@ -29,6 +33,7 @@ import {
   recentWithMember,
   recordAiUsage,
   recordInteraction,
+  recordSkillUse,
   type AiUsageInput,
   type Database,
   type DirectoryMember,
@@ -36,9 +41,11 @@ import {
 import type { Message, SendableChannels } from "discord.js";
 import { createSendTools, type SendState } from "./discord/send-tools.ts";
 import { keepTyping } from "./discord/typing.ts";
+import { isInAgents } from "./discord/zone.ts";
 import { loadServerContext, type ServerSource } from "./learning/server.ts";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
+import { createReplyTools } from "./tools/index.ts";
 
 export interface PipelineDeps {
   db: Database;
@@ -51,6 +58,11 @@ export interface PipelineDeps {
   softAliases: string[];
   timezone: string;
   server: ServerSource;
+  agentsCategoryId: string | null;
+  replyDailyBudgetUsd: number;
+  /** « Novahe (a1b2c3d) », stored with every AI call. */
+  version: string;
+  startedAt: Date;
 }
 
 const TRIAGE_WINDOW = 10;
@@ -62,6 +74,7 @@ const SHORT_MEMORY_MESSAGES = 10;
 const DIRECTORY_TTL_MS = 10 * 60_000;
 /** People tagged or named in the conversation whose profile is added to the reply prompt. */
 const MAX_MENTIONED = 5;
+const DAY_MS = 24 * 60 * 60_000;
 
 interface Directory {
   loadedAt: number;
@@ -108,7 +121,9 @@ export class Pipeline {
   private readonly namesSelf: (content: string) => boolean;
   private readonly softNamesSelf: (content: string) => boolean;
   private readonly ambientBudget = new AmbientBudget();
-  private readonly loopGuard = new BotLoopGuard();
+  // Bots only reach a reply in AGENTS (or DM), so the AGENTS limits are the only ones needed.
+  private readonly loopGuard = new BotLoopGuard(AGENTS_BOT_LOOP_LIMITS);
+  private budgetWarnedAt = 0;
   private readonly busyChannels = new Set<string>();
   private readonly pending = new Map<string, Message>();
   private readonly lastExchange = new Map<string, Exchange>();
@@ -159,6 +174,7 @@ export class Pipeline {
         continuesExchange,
       },
       {
+        inAgents: isInAgents(message.channel, this.deps.agentsCategoryId),
         paused: settings.value.paused,
         authorOptedOut: optedOut,
         channelListened: settings.isListened(message.channelId, parentIdOf(message)),
@@ -168,7 +184,9 @@ export class Pipeline {
     );
 
     if (decision.action === "ignore") {
-      this.deps.log.trace({ messageId: message.id, reason: decision.reason }, "ignored");
+      // A mention that gets no answer is worth seeing in the normal logs.
+      const level = message.mentions.users.has(selfId) && decision.reason !== "self" ? "info" : "trace";
+      this.deps.log[level]({ messageId: message.id, channelId: message.channelId, reason: decision.reason }, "ignored");
       return;
     }
     if (decision.fromBot) {
@@ -276,6 +294,16 @@ export class Pipeline {
     try {
       const { db, ai, selfId, settings, log } = this.deps;
       const isDm = target.guildId === null;
+      const inAgents = isInAgents(target.channel, this.deps.agentsCategoryId);
+      const spent = await aiCostSince(db, ["reply"], new Date(Date.now() - DAY_MS));
+      const overBudget = spent >= this.deps.replyDailyBudgetUsd;
+      if (overBudget) {
+        if (Date.now() - this.budgetWarnedAt > 60 * 60_000) {
+          this.budgetWarnedAt = Date.now();
+          log.warn({ spent, budget: this.deps.replyDailyBudgetUsd }, "reply budget spent: humans only, free models only");
+        }
+        if (!run.addressed || target.author.bot) return false;
+      }
       const history = isDm
         ? [...(await target.channel.messages.fetch({ limit: REPLY_WINDOW })).values()].map((m) => toTranscript(m, selfId))
         : await recentMessages(db, target.channelId, selfId, REPLY_WINDOW);
@@ -285,6 +313,7 @@ export class Pipeline {
       const participants = await this.participants(history, target, directory);
       const elsewhere = await this.elsewhere(target, history);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
+      const skills = selectSkills(await activeSkills(db), target.content);
       const outcome = await reply(
         ai,
         {
@@ -292,6 +321,7 @@ export class Pipeline {
           timezone: this.deps.timezone,
           channelName: "name" in target.channel ? target.channel.name : null,
           isDm,
+          inAgents,
           addressed: run.addressed,
           targetId: target.id,
           targetAuthorId: target.author.id,
@@ -302,14 +332,31 @@ export class Pipeline {
           elsewhere,
           server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
+          skills,
+          version: { label: this.deps.version, since: this.deps.startedAt },
         },
-        (ref, isFallback) =>
-          createSendTools(
-            channel,
+        (ref, isFallback) => ({
+          ...createSendTools(channel, target, send, isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined),
+          ...createReplyTools({
+            db,
+            ai,
+            log,
+            settings,
             target,
+            channel,
             send,
-            isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined,
-          ),
+            selfId,
+            guildId: this.deps.server.id,
+            agentsCategoryId: this.deps.agentsCategoryId,
+            addressed: run.addressed,
+            timezone: this.deps.timezone,
+            names: directory.names,
+            directory: directory.byId,
+            findMembers: directory.find,
+            saveUsage: (usage, detail) => this.saveUsage(run.runId, usage, { detail }),
+          }),
+        }),
+        { freeOnly: overBudget },
       );
 
       if (!outcome.ok) {
@@ -344,6 +391,7 @@ export class Pipeline {
           since: [],
         });
         await recordInteraction(db, target.author.id);
+        await recordSkillUse(db, skills.map((k) => k.id));
         if (target.author.bot) this.loopGuard.recordReplyToBot(target.channelId);
       }
       log.info(
@@ -383,7 +431,7 @@ export class Pipeline {
     return [...places.values()];
   }
 
-/** Names of every member, refreshed every few minutes, to resolve tags and nicknames. */
+  /** Names of every member, refreshed every few minutes, to resolve tags and nicknames. */
   private async directory(): Promise<Directory> {
     if (this.cachedDirectory && Date.now() - this.cachedDirectory.loadedAt < DIRECTORY_TTL_MS) return this.cachedDirectory;
     const members = await memberDirectory(this.deps.db);
@@ -443,6 +491,7 @@ export class Pipeline {
       runId,
       detail: record.status === "ok" ? (extra.detail ?? null) : null,
       replyMessageIds: index === usage.length - 1 ? (extra.replyMessageIds ?? []) : [],
+      version: this.deps.version,
     }));
     if (rows.length === 0 && extra.replyMessageIds?.length) {
       rows.push({
@@ -461,6 +510,7 @@ export class Pipeline {
         error: null,
         detail: extra.detail ?? null,
         replyMessageIds: extra.replyMessageIds,
+        version: this.deps.version,
       });
     }
     await recordAiUsage(this.deps.db, rows).catch((err: unknown) => {

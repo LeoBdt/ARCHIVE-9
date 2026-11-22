@@ -6,6 +6,7 @@ import {
   FACT_CATEGORIES,
   FACT_NATURES,
   SELF_STATE_SOURCES,
+  SKILL_KINDS,
   type MessageReactions,
   type NameHistoryEntry,
   type SelfState,
@@ -24,6 +25,7 @@ import {
   smallint,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
@@ -38,6 +40,7 @@ export const aiCallStatus = pgEnum("ai_call_status", AI_CALL_STATUSES);
 export const actionTier = pgEnum("action_tier", ACTION_TIERS);
 export const actionStatus = pgEnum("action_status", ACTION_STATUSES);
 export const selfStateSource = pgEnum("self_state_source", SELF_STATE_SOURCES);
+export const skillKind = pgEnum("skill_kind", SKILL_KINDS);
 
 export const members = pgTable("members", {
   id: text().primaryKey(),
@@ -163,16 +166,24 @@ export const selfStateVersions = pgTable("self_state_versions", {
   createdAt: createdAt(),
 });
 
-export const skills = pgTable("skills", {
-  id: uuid().primaryKey().defaultRandom(),
-  trigger: text().notNull(),
-  rule: text().notNull(),
-  authorId: text().references(() => members.id, { onDelete: "set null" }),
-  usageCount: integer().notNull().default(0),
-  createdAt: createdAt(),
-  deletedAt: timestamptz(),
-  deletedBy: text(),
-});
+export const skills = pgTable(
+  "skills",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: text().notNull(),
+    kind: skillKind().notNull(),
+    /** Words spotted by the code in a message (triggered skills only). */
+    triggers: text().array().notNull().default(sql`'{}'::text[]`),
+    rule: text().notNull(),
+    authorId: text().references(() => members.id, { onDelete: "set null" }),
+    usageCount: integer().notNull().default(0),
+    lastUsedAt: timestamptz(),
+    createdAt: createdAt(),
+    deletedAt: timestamptz(),
+    deletedBy: text(),
+  },
+  (t) => [uniqueIndex("skills_active_name_idx").on(sql`lower(${t.name})`).where(sql`${t.deletedAt} is null`)],
+);
 
 export const actionsLog = pgTable(
   "actions_log",
@@ -212,6 +223,8 @@ export const aiUsage = pgTable(
     error: text(),
     detail: text(),
     replyMessageIds: text().array().notNull().default(sql`'{}'::text[]`),
+    /** Version of the bot that made the call (« Novahe (a1b2c3d) »). */
+    version: text(),
     createdAt: createdAt(),
   },
   (t) => [

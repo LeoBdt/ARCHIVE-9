@@ -1,6 +1,7 @@
 import { AiRuntime, createModelResolver } from "@archive-9/ai";
+import { versionLabel } from "@archive-9/core";
 import { createDb, ensureServerProfile, ping, runMigrations } from "@archive-9/db";
-import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials, type Guild } from "discord.js";
 import { COMMANDS, handleInteraction } from "./commands.ts";
 import { parseEnv } from "./env.ts";
 import { startHealthServer } from "./health.ts";
@@ -8,10 +9,14 @@ import { Ingest } from "./ingest.ts";
 import { startLearningJobs } from "./learning/jobs.ts";
 import { createLogger } from "./logger.ts";
 import { Pipeline } from "./pipeline.ts";
+import { Presence } from "./presence.ts";
 import { SettingsStore } from "./settings.ts";
 
 const env = parseEnv();
 const log = createLogger(env.LOG_LEVEL);
+const version = versionLabel(env.GIT_SHA);
+const startedAt = new Date();
+log.info({ version }, "starting");
 
 await runMigrations(env.DATABASE_URL);
 log.info("migrations applied");
@@ -48,6 +53,7 @@ const discord = new Client({
 });
 
 const ingest = new Ingest({ db, settings, knownAiBotIds });
+const presence = new Presence({ db, ai, log, settings, timezone: env.BOT_TIMEZONE, version });
 const server = { id: env.DISCORD_GUILD_ID };
 let pipeline: Pipeline | undefined;
 let stopJobs: (() => void) | undefined;
@@ -70,7 +76,12 @@ discord.once(Events.ClientReady, (client) => {
     softAliases: env.BOT_SOFT_ALIASES,
     timezone: env.BOT_TIMEZONE,
     server,
+    agentsCategoryId: env.AGENTS_CATEGORY_ID ?? null,
+    replyDailyBudgetUsd: env.REPLY_DAILY_BUDGET_USD,
+    version,
+    startedAt,
   });
+  presence.start(client);
   stopJobs ??= startLearningJobs(
     {
       db,
@@ -92,12 +103,20 @@ discord.once(Events.ClientReady, (client) => {
     },
   );
   safely("command registration", async () => {
-    const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID);
-    await ensureServerProfile(db, guild.id, guild.name);
-    await guild.commands.set(COMMANDS);
-    log.info({ count: COMMANDS.length }, "commands registered");
+    await registerCommands(await client.guilds.fetch(env.DISCORD_GUILD_ID));
   });
   log.info({ user: client.user.tag, listened: settings.value.listenedChannelIds.length }, "connected to Discord");
+});
+
+/** Guild commands disappear when the bot is removed: they are sent again when it comes back. */
+async function registerCommands(guild: Guild) {
+  await ensureServerProfile(db, guild.id, guild.name);
+  await guild.commands.set(COMMANDS);
+  log.info({ count: COMMANDS.length }, "commands registered");
+}
+
+discord.on(Events.GuildCreate, (guild) => {
+  if (guild.id === env.DISCORD_GUILD_ID) safely("command registration", () => registerCommands(guild));
 });
 
 discord.on(Events.MessageCreate, (message) => {
@@ -123,7 +142,7 @@ discord.on(Events.MessageReactionRemove, (reaction) => {
 });
 discord.on(Events.InteractionCreate, (interaction) => {
   if (!discord.user) return;
-  safely("interaction", () => handleInteraction(interaction, { db, settings, log, selfId: discord.user?.id ?? "", guildId: env.DISCORD_GUILD_ID }));
+  safely("interaction", () => handleInteraction(interaction, { db, settings, log, selfId: discord.user?.id ?? "", guildId: env.DISCORD_GUILD_ID, agentsCategoryId: env.AGENTS_CATEGORY_ID ?? null, version, presence }));
 });
 
 const health = startHealthServer(env.HEALTH_PORT, async () => {
@@ -137,6 +156,7 @@ await discord.login(env.DISCORD_TOKEN);
 async function shutdown(signal: string) {
   log.info({ signal }, "shutting down");
   pipeline?.stop();
+  presence.stop();
   stopJobs?.();
   health.close();
   await discord.destroy();

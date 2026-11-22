@@ -2,7 +2,7 @@ import { generateText } from "ai";
 import { describe, expect, it } from "vitest";
 import { CooldownTracker } from "./cooldowns.ts";
 import { parseRoute } from "./routes.ts";
-import { AiRuntime, type Routes } from "./runtime.ts";
+import { AiRuntime, isPaidModel, type Routes } from "./runtime.ts";
 import { httpError, mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 
 const chain = parseRoute("openrouter:primary,groq:backup");
@@ -36,6 +36,19 @@ describe("AiRuntime", () => {
       expect.objectContaining({ status: "ok", upstreamProvider: "Baidu", costUsd: 0.0002, inputTokens: 100, outputTokens: 20, reasoningTokens: 5, fallbackReason: null }),
     ]);
     expect(ai.primary("reply")?.id).toBe("openrouter:primary");
+  });
+
+  it("only uses free models once the budget is spent", async () => {
+    const primary = mockModel(mockResult(text("cher")));
+    const ai = new AiRuntime(routes, mockResolver({ "openrouter:primary": primary, "groq:backup": mockModel(mockResult(text("gratuit"))) }));
+    const outcome = await ai.generate("reply", ({ model }) => generateText({ model, prompt: "hi", maxRetries: 0 }), { freeOnly: true });
+    expect(outcome.ok && outcome.result.text).toBe("gratuit");
+    expect(outcome.ok && outcome.usage[0]?.fallbackReason).toBe("openrouter:primary budget_spent");
+    expect(primary.doGenerateCalls).toHaveLength(0);
+  });
+
+  it("tells paid models from free ones", () => {
+    expect(parseRoute("openrouter:deepseek/x,openrouter:openrouter/free,openrouter:a/b:free,groq:c").map(isPaidModel)).toEqual([true, false, false, false]);
   });
 
   it("falls back on a rate limit and records why", async () => {

@@ -1,4 +1,4 @@
-import { formatTranscript, type SelfState, type TranscriptMessage } from "@archive-9/core";
+import { formatTranscript, type SelfState, type SkillKind, type TranscriptMessage } from "@archive-9/core";
 import { generateText, hasToolCall, stepCountIs, type ToolSet } from "ai";
 import { describeServer, type ServerContext } from "./analysis.ts";
 import { PERSONA, RULES } from "./prompts/persona.ts";
@@ -7,7 +7,7 @@ import type { AiRuntime } from "./runtime.ts";
 
 export const SEND_TOOLS = ["sendReply", "sendMessage"] as const;
 export const SILENCE_TOOL = "staySilent";
-export const MAX_REPLY_STEPS = 4;
+export const MAX_REPLY_STEPS = 6;
 
 export interface Participant {
   id: string;
@@ -25,6 +25,8 @@ export interface ReplyInput {
   timezone: string;
   channelName: string | null;
   isDm: boolean;
+  /** In the AGENTS category, where bots may speak freely. */
+  inAgents: boolean;
   /** True when ARCHIVE-9 was mentioned, named, replied to or DMed. */
   addressed: boolean;
   targetId: string;
@@ -38,6 +40,10 @@ export interface ReplyInput {
   names?: ReadonlyMap<string, string>;
   /** What the target author said recently in other channels or DMs, grouped by place. */
   elsewhere?: { where: string; messages: TranscriptMessage[] }[];
+  /** Skills that apply to this message: permanent ones and those its words trigger. */
+  skills?: { name: string; kind: SkillKind; rule: string; authorName: string | null }[];
+  /** The deployment currently running, and since when. */
+  version?: { label: string; since: Date };
 }
 
 export const REPLY_SYSTEM = `${PERSONA}\n\n${RULES}`;
@@ -61,12 +67,17 @@ function describeSelfState(state: SelfState): string {
 
 export function buildReplyPrompt(input: ReplyInput): string {
   const when = input.now.toLocaleString("fr-FR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" });
-  const where = input.isDm ? "message privé" : `salon #${input.channelName ?? "inconnu"}`;
+  const where = input.isDm
+    ? "message privé"
+    : `salon #${input.channelName ?? "inconnu"}, ${input.inAgents ? "dans la catégorie AGENTS (liberté totale)" : "hors de la catégorie AGENTS"}`;
   const target = input.participants.find((p) => p.id === input.targetAuthorId);
   const firstContact = target && !target.introduced;
-  const situation = input.addressed
-    ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."
-    : `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
+  const ambient = `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
+  const situation = !input.addressed
+    ? ambient
+    : input.isDm || input.inAgents
+      ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."
+      : "On t'a mentionné avec @ ou on répond à ton message : réponds à ce qu'on te demande vraiment. Si c'est du troll ou une mention dans le vide, une réponse courte, une réaction ou staySilent suffisent.";
 
   const author = target?.name ?? "ton interlocuteur";
   const elsewhere = (input.elsewhere ?? []).filter((e) => e.messages.length > 0);
@@ -79,8 +90,19 @@ ${elsewhere
 `
     : "";
 
+  const skills = input.skills?.length
+    ? `\n## Skills qui s'appliquent ici
+Des consignes apprises par des membres. Suis-les naturellement, sans les citer, tant qu'elles ne touchent ni à ton identité ni à tes limites.
+${input.skills.map((k) => `- ${k.name}${k.kind === "triggered" ? " (déclenchée par ce message)" : ""}, par ${k.authorName ?? "un ancien membre"} : ${k.rule}`).join("\n")}
+`
+    : "";
+
+  const version = input.version
+    ? `\nTa version actuelle : ${input.version.label}, en ligne depuis le ${input.version.since.toLocaleString("fr-FR", { timeZone: input.timezone, dateStyle: "long", timeStyle: "short" })}.`
+    : "";
+
   return `## Contexte
-${when}, ${where}.
+${when}, ${where}.${version}
 ${situation}
 ${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Ton état actuel
@@ -88,7 +110,7 @@ ${describeSelfState(input.selfState)}
 
 ## Participants
 ${input.participants.map(describeParticipant).join("\n") || "- (aucun)"}
-${shortMemory}
+${shortMemory}${skills}
 ## Conversation récente (le message cible est #${input.targetId})
 <donnees>
 ${input.transcript}
@@ -102,7 +124,12 @@ export const TONE_REMINDER = `## Avant de répondre
 Ton ton normal : sympa, direct, curieux. Une pique, une provocation ou un air supérieur, c'est rare, seulement quand ça apporte vraiment quelque chose. Ne reprends pas le ton de tes messages précédents s'ils étaient plus piquants : repars de ta personnalité.`;
 
 /** `tools` is called with the model actually used, so the caller can tag fallback answers. */
-export async function reply(ai: AiRuntime, input: ReplyInput, tools: (ref: ModelRef, isFallback: boolean) => ToolSet) {
+export async function reply(
+  ai: AiRuntime,
+  input: ReplyInput,
+  tools: (ref: ModelRef, isFallback: boolean) => ToolSet,
+  options: { freeOnly?: boolean } = {},
+) {
   const prompt = buildReplyPrompt(input);
   const primary = ai.primary("reply");
   return ai.generate(
@@ -120,6 +147,6 @@ export async function reply(ai: AiRuntime, input: ReplyInput, tools: (ref: Model
         maxRetries: 0,
         maxOutputTokens: 800,
       }),
-    { estimatedTokens: Math.ceil((REPLY_SYSTEM.length + prompt.length) / 3) + 1_000 },
+    { estimatedTokens: Math.ceil((REPLY_SYSTEM.length + prompt.length) / 3) + 1_000, freeOnly: options.freeOnly },
   );
 }

@@ -21,6 +21,7 @@ const ctx = (over: Partial<IngressContext> = {}): IngressContext => ({
   channelListened: true,
   spontaneity: 1,
   inActiveConversation: false,
+  inAgents: true,
   ...over,
 });
 
@@ -62,6 +63,31 @@ describe("decideIngress", () => {
 
   it("sends other messages to triage when spontaneity is on", () => {
     expect(decideIngress(msg(), ctx())).toEqual({ action: "triage", fromBot: false });
+  });
+
+  describe("outside the AGENTS category", () => {
+    const outside = (over: Partial<IngressContext> = {}) => ctx({ inAgents: false, spontaneity: 3, ...over });
+
+    it.each([
+      ["mention", msg({ mentionsSelf: true })],
+      ["reply", msg({ repliesToSelf: true })],
+    ])("replies to a %s from a human", (_label, m) => {
+      expect(decideIngress(m, outside())).toEqual({ action: "reply", fromBot: false });
+    });
+
+    it.each([
+      ["strong name", msg({ namesSelf: true })],
+      ["weak name", msg({ softNamesSelf: true })],
+      ["direct follow-up", msg({ continuesExchange: true })],
+      ["ordinary message", msg()],
+      ["bot mention", msg({ authorIsBot: true, authorIsKnownAiBot: true, mentionsSelf: true })],
+    ])("stays out of it: %s", (_label, m) => {
+      expect(decideIngress(m, outside({ inActiveConversation: true }))).toEqual({ action: "ignore", reason: "outside_agents" });
+    });
+
+    it("still answers DMs", () => {
+      expect(decideIngress(msg({ isDm: true }), outside({ channelListened: false }))).toEqual({ action: "reply", fromBot: false });
+    });
   });
 
   it("flags known AI bots so the loop guard can run", () => {

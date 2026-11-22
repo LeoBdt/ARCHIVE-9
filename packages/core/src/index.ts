@@ -1,3 +1,4 @@
+export * from "./actions.ts";
 export * from "./bot-loop.ts";
 export * from "./content.ts";
 export * from "./conversations.ts";
@@ -9,5 +10,7 @@ export * from "./mention.ts";
 export * from "./relationship.ts";
 export * from "./schedule.ts";
 export * from "./self-state.ts";
+export * from "./skills.ts";
 export * from "./spontaneity.ts";
 export * from "./transcript.ts";
+export * from "./version.ts";

@@ -7,6 +7,8 @@ export * from "./reflection.ts";
 export * from "./reply.ts";
 export * from "./routes.ts";
 export * from "./runtime.ts";
+export * from "./skill-check.ts";
+export * from "./status.ts";
 export * from "./summary.ts";
 export * from "./triage.ts";
 export * from "./usage.ts";

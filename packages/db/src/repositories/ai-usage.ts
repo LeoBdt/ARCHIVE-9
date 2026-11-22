@@ -20,6 +20,7 @@ export interface AiUsageInput {
   /** Triage reason, or tools called by a reply. */
   detail?: string | null;
   replyMessageIds?: string[];
+  version?: string | null;
 }
 
 export async function recordAiUsage(db: Database, rows: AiUsageInput[]): Promise<void> {

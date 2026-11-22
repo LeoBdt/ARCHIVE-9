@@ -13,6 +13,13 @@ export const DEFAULT_BOT_LOOP_LIMITS: BotLoopLimits = {
   dailyCap: 40,
 };
 
+/** In the AGENTS category, bots may talk freely; the daily reply budget is the real limit. */
+export const AGENTS_BOT_LOOP_LIMITS: BotLoopLimits = {
+  maxConsecutive: 10,
+  minIntervalMs: 10_000,
+  dailyCap: Number.POSITIVE_INFINITY,
+};
+
 export type BotLoopDecision =
   | { allowed: true }
   | { allowed: false; reason: "consecutive" | "interval" | "daily_cap" };

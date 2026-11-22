@@ -7,6 +7,8 @@ import { buildReplyPrompt, REPLY_SYSTEM, reply, TONE_REMINDER, type ReplyInput }
 import { parseRoute } from "./routes.ts";
 import { AiRuntime, type Routes } from "./runtime.ts";
 import { mockModel, mockResolver, mockResult, text, toolCall } from "./test-utils.ts";
+import { buildSkillCheckPrompt, checkSkill } from "./skill-check.ts";
+import { buildStatusPrompt, cleanStatus, writeStatus } from "./status.ts";
 import { buildTriagePrompt, triage } from "./triage.ts";
 
 const chain = parseRoute("groq:main");
@@ -16,7 +18,7 @@ describe("triage", () => {
   const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "" };
 
   it("returns the validated decision", async () => {
-    const decision = { addressed: true, interest: 10, reason: "on lui pose une question", toolPacks: ["discord-messages"] };
+    const decision = { addressed: true, interest: 10, reason: "on lui pose une question" };
     const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
     const outcome = await triage(ai, input);
     expect(outcome.decision).toEqual(decision);
@@ -24,7 +26,7 @@ describe("triage", () => {
   });
 
   it("trims an overly long reason instead of failing", async () => {
-    const decision = { addressed: false, interest: 3, reason: "x".repeat(500), toolPacks: [] };
+    const decision = { addressed: false, interest: 3, reason: "x".repeat(500) };
     const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
     expect((await triage(ai, input)).decision?.reason).toHaveLength(300);
   });
@@ -51,6 +53,7 @@ const baseInput: ReplyInput = {
   timezone: "Europe/Paris",
   channelName: "général",
   isDm: false,
+  inAgents: true,
   addressed: true,
   targetId: "42",
   targetAuthorId: "1",
@@ -88,6 +91,18 @@ describe("buildReplyPrompt", () => {
     expect(prompt).not.toContain("récemment ailleurs");
   });
 
+  it("says where it is, and asks for restraint outside AGENTS", () => {
+    expect(buildReplyPrompt(baseInput)).toContain("salon #général, dans la catégorie AGENTS");
+    const outside = buildReplyPrompt({ ...baseInput, inAgents: false });
+    expect(outside).toContain("hors de la catégorie AGENTS");
+    expect(outside).toContain("du troll");
+  });
+
+  it("knows its version", () => {
+    const prompt = buildReplyPrompt({ ...baseInput, version: { label: "Novahe (a1b2c3d)", since: new Date("2026-01-01T08:00:00Z") } });
+    expect(prompt).toContain("Ta version actuelle : Novahe (a1b2c3d), en ligne depuis le 1 janvier 2026 à 09:00.");
+  });
+
   it("adds the short memory of the target author", () => {
     const said = { id: "7", authorId: "1", authorName: "Tom", authorIsBot: false, isSelf: false, content: "j'ai stage lundi", replyToId: null, createdAt: new Date("2026-01-01T18:00:00Z") };
     const prompt = buildReplyPrompt({ ...baseInput, elsewhere: [{ where: "en message privé", messages: [said] }, { where: "#jeux", messages: [] }] });
@@ -100,6 +115,65 @@ describe("buildReplyPrompt", () => {
     const prompt = buildReplyPrompt({ ...baseInput, server: { id: "5", name: "Le Royaume", summary: "Débats CS2." } });
     expect(prompt).toContain("## Le serveur\nNom : Le Royaume (ID 5).\nCe que tu en as appris : Débats CS2.");
     expect(buildReplyPrompt(baseInput)).not.toContain("## Le serveur");
+  });
+});
+
+describe("skills in the reply prompt", () => {
+  it("lists the skills with their author", () => {
+    const prompt = buildReplyPrompt({
+      ...baseInput,
+      skills: [
+        { name: "Météo", kind: "permanent", rule: "Parle de la pluie.", authorName: "Lea" },
+        { name: "Pizza", kind: "triggered", rule: "L'ananas est un crime.", authorName: null },
+      ],
+    });
+    expect(prompt).toContain("## Skills qui s'appliquent ici");
+    expect(prompt).toContain("- Météo, par Lea : Parle de la pluie.");
+    expect(prompt).toContain("- Pizza (déclenchée par ce message), par un ancien membre : L'ananas est un crime.");
+    expect(buildReplyPrompt(baseInput)).not.toContain("## Skills");
+  });
+});
+
+describe("status line", () => {
+  const input = { now: baseInput.now, timezone: "Europe/Paris", selfState: { ...INITIAL_SELF_STATE, mood: "grognon" }, previous: ["Je classe les silences."] };
+
+  it("gives the mood and the previous lines as data", () => {
+    const prompt = buildStatusPrompt(input);
+    expect(prompt).toContain("Humeur : grognon");
+    expect(prompt).toContain("« Je classe les silences. »");
+    expect(prompt).toMatch(/<donnees>[\s\S]*<\/donnees>$/);
+  });
+
+  it("keeps one clean line within Discord's limit", () => {
+    expect(cleanStatus(" « J'archive\nles nuages » ")).toBe("J'archive les nuages");
+    expect(cleanStatus("x".repeat(200))).toHaveLength(128);
+    expect(cleanStatus(" \" ")).toBeNull();
+  });
+
+  it("returns the small model's line", async () => {
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify({ status: "Humeur : corrompu mais fonctionnel." })))) }));
+    expect((await writeStatus(ai, input)).status).toBe("Humeur : corrompu mais fonctionnel.");
+  });
+});
+
+describe("checkSkill", () => {
+  const draft = { name: "Pizza", kind: "triggered" as const, triggers: ["pizza", "ananas"], rule: "L'ananas est un crime." };
+
+  it("puts the skill in the data zone", () => {
+    expect(buildSkillCheckPrompt(draft)).toBe("<donnees>\nNom : Pizza\nS'applique : quand un message contient : pizza, ananas\nConsigne : L'ananas est un crime.\n</donnees>");
+  });
+
+  it("returns the small model's verdict", async () => {
+    const verdict = { ok: false, reason: "harcèlement ciblé" };
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(verdict)))) }));
+    expect((await checkSkill(ai, draft)).verdict).toEqual(verdict);
+  });
+
+  it("refuses when no model can check it", async () => {
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(new Error("down")) }));
+    const { verdict, usage } = await checkSkill(ai, draft);
+    expect(verdict.ok).toBe(false);
+    expect(usage[0]?.status).toBe("error");
   });
 });
 
@@ -124,6 +198,9 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain("Une pique en fin de message");
     expect(REPLY_SYSTEM).toContain("péter un câble");
     expect(REPLY_SYSTEM).toContain("c'est l'ancien message qui a tort");
+    expect(REPLY_SYSTEM).toContain("jamais de toi-même");
+    expect(REPLY_SYSTEM).toContain("`/skills`");
+    expect(REPLY_SYSTEM).toContain("## La règle du serveur pour les bots");
   });
 });
 
