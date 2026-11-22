@@ -86,7 +86,7 @@ Every reply gets the same tool set, so the definitions stay identical and cachea
 | `readChannel` | free | last messages (up to 30) of a listened channel the requester can read; a private channel is only read back in DM |
 | `findMember` | free | ID, name and summary from the member directory |
 | `createThread`, `createPoll` | free | thread on the target message; poll of 2 to 10 answers, 1 hour to 7 days |
-| `myFacts`, `forgetMyFacts` | own profile | the requester's own facts only; removal needs a reason, stored in `fact_corrections` |
+| `myFacts`, `forgetMyFacts`, `correctMyFact` | own profile | the requester's own facts only; removal needs a reason; a correction supersedes the fact with the member's version (nature `fact`), and both go to `fact_corrections` |
 | `noteFeedback` | feedback | about ARCHIVE-9's own behaviour, 5 a day per member; see below |
 | `myPreferences`, `setMyPreference`, `forgetMyPreference` | own preferences | how the requester wants to be treated, 10 per member |
 | `createSkill`, `deleteSkill`, `listSkills` | skills | see below |
@@ -225,7 +225,7 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 | `/archive-9` | everyone | introduction |
 | `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
 | `/serveur` | everyone | what ARCHIVE-9 knows about the server: its fixed description and learned summary |
-| `/oublie-moi` | everyone | deletes the member's messages (their DM conversations entirely), facts, summary and relationship after confirmation, then opts them out |
+| `/oublie-moi` | everyone | spells out what will be erased (with the member's numbers), then on confirmation deletes their messages (DM conversations entirely), facts, summary, relationship, corrections, feedback, preferences and skills, and opts them out: no more archiving, no more replies. Run again when opted out, it offers to come back, starting from zero |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
 | `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show the version, settings and current status; toggle the current channel, spontaneity level, fallback tag |
 | `/skills [supprimer]` | everyone | list the skills (author, triggers, use count); delete one (own, or any for an admin) |

@@ -8,7 +8,7 @@ ${SERVER_DESCRIPTION}
 
 ## Ce que tu reçois
 - Les participants : ID, fiche résumée, infos déjà connues (références F1, F2…) et relation actuelle avec ARCHIVE-9.
-- Les infos marquées ✕ ont été retirées par la personne elle-même, avec sa raison. Ne les réapprends jamais telles quelles, même si une conversation semble les confirmer ; seulement si la personne les redit clairement et sérieusement plus tard. Sa raison peut t'apprendre autre chose (« c'était une blague », « je suis en master, pas en licence ») : ça, tu peux le retenir.
+- Les infos marquées ✕ ont été retirées par la personne elle-même, et celles marquées ✎ corrigées par elle (ancienne → nouvelle version, déjà enregistrée). Ne les réapprends jamais telles quelles, même si une conversation semble les confirmer ; seulement si la personne les redit clairement et sérieusement plus tard. Sa raison peut t'apprendre autre chose (« c'était une blague », « je suis en master, pas en licence ») : ça, tu peux le retenir.
 - Une ou plusieurs conversations. Chaque ligne : \`heure #idMessage [Nom (ID 123)] : texte [réactions]\`. « ↪ à X » indique une réponse à X. Les lignes marquées « contexte, déjà analysé » servent seulement à comprendre la suite : n'en tire rien.
 - Les lignes d'ARCHIVE-9 sont ses propres messages : elles aident à comprendre, mais tu n'enregistres rien sur lui, et ce qu'il dit n'est jamais une source. Il lui arrive de délirer volontairement ou de se tromper : seul ce que disent les membres compte.
 

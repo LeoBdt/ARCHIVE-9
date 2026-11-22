@@ -1,0 +1,1 @@
+ALTER TABLE "fact_corrections" ADD COLUMN "new_content" text;

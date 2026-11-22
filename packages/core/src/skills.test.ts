@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSkillDraft, parseUntil, selectSkills, skillMatches, type ActiveSkill } from "./skills.ts";
+import { checkOwnFactText, checkSkillDraft, parseUntil, selectSkills, skillMatches, type ActiveSkill } from "./skills.ts";
 
 describe("checkSkillDraft", () => {
   it("cleans a valid draft", () => {
@@ -75,5 +75,15 @@ describe("parseUntil", () => {
     expect(parseUntil("25:00", "Europe/Paris", now)).toBeNull();
     expect(parseUntil("2026-11-20 10:00", "Europe/Paris", now)).toBeNull();
     expect(parseUntil("2026-12-20 10:00", "Europe/Paris", now)).toBeNull();
+  });
+});
+
+describe("checkOwnFactText", () => {
+  it("accepts a plain sentence and refuses contact details", () => {
+    expect(checkOwnFactText("En master d'informatique.")).toBeNull();
+    expect(checkOwnFactText("ok")).not.toBeNull();
+    expect(checkOwnFactText("Écrivez-moi à tom@example.org")).toContain("adresse");
+    expect(checkOwnFactText("Son site : https://tom.dev")).toContain("lien");
+    expect(checkOwnFactText("Joignable au 06 12 34 56 78")).toContain("numéro");
   });
 });

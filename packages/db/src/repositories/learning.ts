@@ -275,6 +275,8 @@ export async function deleteSummary(db: Database, memberId: string): Promise<voi
 
 export interface Correction {
   content: string;
+  /** Set when the member rewrote the fact rather than removing it. */
+  newContent: string | null;
   reason: string;
 }
 
@@ -297,18 +299,40 @@ export async function forgetOwnFacts(db: Database, memberId: string, factIds: st
   });
 }
 
+/**
+ * Replaces one of a member's own facts by their version. The old one is superseded, so it
+ * stays in the history; the new one counts as said by them. Null when the fact isn't theirs.
+ */
+export async function correctOwnFact(db: Database, memberId: string, factId: string, newContent: string, reason: string, source: "discord" | "site") {
+  return db.transaction(async (tx) => {
+    const [old] = await tx
+      .select()
+      .from(profileFacts)
+      .where(and(eq(profileFacts.id, factId), eq(profileFacts.memberId, memberId), isCurrent));
+    if (!old) return null;
+    const [created] = await tx
+      .insert(profileFacts)
+      .values({ memberId, category: old.category, nature: "fact", confidence: 0.95, content: newContent, sourceMessageIds: [] })
+      .returning({ id: profileFacts.id });
+    if (!created) return null;
+    await tx.update(profileFacts).set({ supersededBy: created.id, updatedAt: sql`now()` }).where(eq(profileFacts.id, old.id));
+    await tx.insert(factCorrections).values({ memberId, factId: old.id, content: old.content, newContent, reason, source });
+    return { before: old.content, after: newContent };
+  });
+}
+
 /** Last corrections of each member, for the analysis not to learn them again. */
 export async function recentCorrections(db: Database, memberIds: string[], perMember = 10): Promise<Map<string, Correction[]>> {
   const result = new Map<string, Correction[]>();
   if (memberIds.length === 0) return result;
   const rows = await db
-    .select({ memberId: factCorrections.memberId, content: factCorrections.content, reason: factCorrections.reason })
+    .select({ memberId: factCorrections.memberId, content: factCorrections.content, newContent: factCorrections.newContent, reason: factCorrections.reason })
     .from(factCorrections)
     .where(inArray(factCorrections.memberId, memberIds))
     .orderBy(desc(factCorrections.createdAt));
   for (const row of rows) {
     const list = result.get(row.memberId) ?? [];
-    if (list.length < perMember) list.push({ content: row.content, reason: row.reason });
+    if (list.length < perMember) list.push({ content: row.content, newContent: row.newContent, reason: row.reason });
     result.set(row.memberId, list);
   }
   return result;

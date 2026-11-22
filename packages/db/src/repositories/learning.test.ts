@@ -11,6 +11,7 @@ import {
   factsSince,
   participantProfiles,
   relationshipEventsSince,
+  correctOwnFact,
   forgetOwnFacts,
   recentCorrections,
   saveSummary,
@@ -166,11 +167,22 @@ describe.skipIf(!url)("learning repositories", () => {
     expect((await currentFacts(db, "1", 50)).some((f) => f.id === mine?.id)).toBe(false);
     expect((await currentFacts(db, "2", 50)).some((f) => f.id === hers?.id)).toBe(true);
 
-    expect((await recentCorrections(db, ["1"])).get("1")).toEqual([{ content: "A inventé un faux opt-out.", reason: "c'était un test" }]);
+    expect((await recentCorrections(db, ["1"])).get("1")).toEqual([{ content: "A inventé un faux opt-out.", newContent: null, reason: "c'était un test" }]);
     expect((await participantProfiles(db, ["1"], 5))[0]?.removed).toHaveLength(1);
     expect(await summariesToRefresh(db)).toEqual(["1"]);
     await saveSummary(db, { memberId: "1", summary: "Joue à CS2.", tagline: null, factCount: 1, model: "m" });
     expect(await summariesToRefresh(db)).toEqual([]);
+  });
+
+  it("lets a member rewrite one of their facts, keeping the old one in the history", async () => {
+    await applyAnalysis(db, write({ facts: [fact({ memberId: "3", category: "identity", content: "En licence d'info." })] }));
+    const old = (await currentFacts(db, "3", 50)).find((f) => f.content === "En licence d'info.");
+    expect(await correctOwnFact(db, "2", old?.id ?? "", "Volé.", "", "site")).toBeNull();
+    expect(await correctOwnFact(db, "3", old?.id ?? "", "En master d'info.", "je suis en master", "site")).toEqual({ before: "En licence d'info.", after: "En master d'info." });
+    const now = await currentFacts(db, "3", 50);
+    expect(now.find((f) => f.content === "En master d'info.")).toMatchObject({ category: "identity", nature: "fact" });
+    expect(now.some((f) => f.id === old?.id)).toBe(false);
+    expect((await recentCorrections(db, ["3"])).get("3")?.[0]).toEqual({ content: "En licence d'info.", newContent: "En master d'info.", reason: "je suis en master" });
   });
 
   it("keeps feedback until a reflection weighs it, five a day per member", async () => {

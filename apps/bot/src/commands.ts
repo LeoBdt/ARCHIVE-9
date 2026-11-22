@@ -11,6 +11,7 @@ import {
   optBackIn,
   profileOverview,
   recentControlledActions,
+  skillCounts,
   reopenAction,
   runForMessage,
   type CurrentFact,
@@ -45,7 +46,7 @@ export const COMMANDS = [
   new SlashCommandBuilder().setName("archive-9").setDescription("ARCHIVE-9 se présente"),
   new SlashCommandBuilder().setName("mafiche").setDescription("Ce qu'ARCHIVE-9 sait sur toi"),
   new SlashCommandBuilder().setName("serveur").setDescription("Ce qu'ARCHIVE-9 sait du serveur"),
-  new SlashCommandBuilder().setName("oublie-moi").setDescription("Effacer toutes tes données et ne plus être archivé"),
+  new SlashCommandBuilder().setName("oublie-moi").setDescription("Effacer toutes tes données et ne plus être archivé, ou revenir"),
   new SlashCommandBuilder().setName("pause").setDescription("Couper toutes les réponses d'ARCHIVE-9").setDefaultMemberPermissions(ADMIN),
   new SlashCommandBuilder().setName("reprendre").setDescription("Relancer ARCHIVE-9 après une pause").setDefaultMemberPermissions(ADMIN),
   new SlashCommandBuilder()
@@ -101,9 +102,9 @@ function onOff(value: boolean): string {
 async function myProfile(i: ChatInputCommandInteraction, deps: CommandDeps) {
   const overview = await profileOverview(deps.db, i.user.id);
   if (overview.member?.optedOutAt) {
-    const back = new ButtonBuilder().setCustomId(`optin:${i.user.id}`).setLabel("Réintégrer les archives").setStyle(ButtonStyle.Secondary);
+    const back = new ButtonBuilder().setCustomId(`optin:${i.user.id}`).setLabel("Revenir dans les archives").setStyle(ButtonStyle.Primary);
     await i.reply({
-      content: "Tu es hors archives. Je ne garde rien de ce que tu écris.",
+      content: "Tu es hors archives : je ne garde rien de ce que tu écris et je ne te réponds plus. Si tu reviens, je repars de zéro.",
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(back)],
       flags: ephemeral,
     });
@@ -163,13 +164,38 @@ export function formatProfile(
   return lines.join("\n");
 }
 
-async function forgetMe(i: ChatInputCommandInteraction) {
+/** What /oublie-moi will erase, spelled out with the member's own numbers. */
+export function forgetWarning(counts: { messages: number; facts: number; skills: number; preferences: number }): string {
+  const n = (value: number, one: string, many: string) => `${String(value)} ${value === 1 ? one : many}`;
+  return [
+    "**Avant de tout effacer, lis bien.**",
+    `- J'efface tes **${n(counts.messages, "message archivé", "messages archivés")}**, MP compris, et ta fiche (**${n(counts.facts, "fragment", "fragments")}**).`,
+    "- J'oublie notre relation : je ne saurai plus qui tu es.",
+    `- J'efface aussi tes préférences (${String(counts.preferences)}), tes retours et tes skills (${String(counts.skills)}).`,
+    "- Ensuite, je **ne te réponds plus** et je ne retiens plus rien de ce que tu écris.",
+    "- **C'est irréversible.** Tu pourras revenir quand tu veux avec `/oublie-moi`, mais je repartirai **de zéro** avec toi.",
+    "-# Les messages des autres qui parlent de toi restent archivés, mais plus rien n'est relié à ta fiche.",
+  ].join("\n");
+}
+
+async function forgetMe(i: ChatInputCommandInteraction, deps: CommandDeps) {
+  const overview = await profileOverview(deps.db, i.user.id);
+  if (overview.member?.optedOutAt) {
+    const back = new ButtonBuilder().setCustomId(`optin:${i.user.id}`).setLabel("Revenir dans les archives").setStyle(ButtonStyle.Primary);
+    await i.reply({
+      content: `Tu es hors archives depuis le ${overview.member.optedOutAt.toLocaleDateString("fr-FR")}. Si tu reviens, je repars de zéro : je ne me souviendrai de rien.`,
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(back)],
+      flags: ephemeral,
+    });
+    return;
+  }
+  const [counts, preferences] = await Promise.all([skillCounts(deps.db, i.user.id), listPreferences(deps.db, i.user.id)]);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`forget:${i.user.id}`).setLabel("Tout effacer").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`forget:${i.user.id}`).setLabel("Je comprends, tout effacer").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`cancel:${i.user.id}`).setLabel("Annuler").setStyle(ButtonStyle.Secondary),
   );
   await i.reply({
-    content: "Je supprime tes messages archivés (MP compris), ta fiche, notre relation, et je ne retiendrai plus rien de toi. C'est définitif. Sûr ?",
+    content: forgetWarning({ messages: overview.messageCount, facts: overview.factCount, skills: counts.byAuthor, preferences: preferences.length }),
     components: [row],
     flags: ephemeral,
   });
@@ -371,10 +397,10 @@ async function onButton(i: ButtonInteraction, deps: CommandDeps) {
   if (action === "forget") {
     await forgetMember(deps.db, i.user.id);
     deps.log.info({ memberId: i.user.id }, "member forgotten");
-    await i.update({ content: "Effacé. Tu n'existes plus dans mes archives.", components: [] });
+    await i.update({ content: "C'est fait. Tu n'existes plus dans mes archives, et je ne te réponds plus. Si tu changes d'avis : `/oublie-moi`, et on repart de zéro.", components: [] });
   } else if (action === "optin") {
     await optBackIn(deps.db, i.user.id);
-    await i.update({ content: "Bon retour dans les archives.", components: [] });
+    await i.update({ content: "Bon retour. Je repars de zéro : je ne me souviens de rien, je me présenterai comme à un inconnu.", components: [] });
   } else {
     await i.update({ content: "Rien n'a été effacé.", components: [] });
   }
@@ -392,7 +418,7 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
       await serverProfile(i, deps);
       break;
     case "oublie-moi":
-      await forgetMe(i);
+      await forgetMe(i, deps);
       break;
     case "pause":
       await deps.settings.set("paused", true, i.user.id);
