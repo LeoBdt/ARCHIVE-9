@@ -52,7 +52,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  image:
+  images:
+    name: image (${{ matrix.app }})
     needs: [check, secrets]
     runs-on: ubuntu-latest
     strategy:
@@ -105,3 +106,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.app }}
+
+  # The check that protects main: green only when every image built and passed its smoke test.
+  image:
+    needs: [images]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.images.result }}" = "success"
