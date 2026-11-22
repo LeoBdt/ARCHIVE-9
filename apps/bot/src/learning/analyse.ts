@@ -51,6 +51,8 @@ const PASS_MESSAGES = 600;
 const CONTEXT_MESSAGES = 6;
 const FACTS_IN_PROMPT = 20;
 const FACTS_IN_SUMMARY = 60;
+/** Long runs (backfill) refresh summaries along the way, so an interruption loses nothing. */
+const SUMMARIES_EVERY = 15;
 
 function costOf(usage: UsageRecord[]): number {
   return usage.reduce((sum, record) => sum + (record.costUsd ?? 0), 0);
@@ -130,14 +132,18 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
       });
       for (const id of changed) touched.add(id);
       report.batches += 1;
+      if (report.batches % SUMMARIES_EVERY === 0) {
+        report.summaries += await refreshSummaries(deps, [...touched], report);
+        touched.clear();
+      }
       report.messages += ids.length;
       report.facts += outcome.result.facts.length;
       options.onBatch?.({ messages: report.messages, costUsd: report.costUsd });
     }
   }
 
-  report.summaries = await refreshSummaries(deps, [...touched], report);
-  if (report.batches > 0) await notify(db, { type: "learned", memberIds: [...touched] });
+  report.summaries += await refreshSummaries(deps, [...touched], report);
+  if (report.batches > 0) await notify(db, { type: "learned" });
   if (report.batches > 0 || report.failed) log.info(report, "analysis done");
   return report;
 }

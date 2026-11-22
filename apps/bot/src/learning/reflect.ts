@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { INITIAL_SELF_STATE, reflect } from "@archive-9/ai";
-import { applySelfStateChange, groupConversations } from "@archive-9/core";
+import { applySelfStateChange, groupConversations, SELF_STATE_LIMITS } from "@archive-9/core";
 import {
   currentSelfState,
   factsSince,
@@ -14,18 +14,23 @@ import {
 import type { LearningDeps } from "./analyse.ts";
 
 const DAY = 24 * 60 * 60_000;
-const MAX_MESSAGES = 150;
 
-/** Conversations ARCHIVE-9 took part in come first, then the rest while there is room. */
-function pickConversations(messages: StoredMessage[]): StoredMessage[][] {
-  const conversations = groupConversations(messages);
-  const ranked = [...conversations].sort(
-    (a, b) => Number(b.some((m) => m.isSelf)) - Number(a.some((m) => m.isSelf)) || b.length - a.length,
-  );
+function reactionCount(conversation: StoredMessage[]): number {
+  return conversation.reduce((sum, m) => sum + Object.values(m.reactions).reduce((a, b) => a + b, 0), 0);
+}
+
+/**
+ * Picks up to `max` messages of conversations, oldest first. The evening favours those
+ * ARCHIVE-9 took part in; the awakening favours the ones that made people react.
+ */
+function pickConversations(messages: StoredMessage[], max: number, mode: "evening" | "awakening"): StoredMessage[][] {
+  const score = (c: StoredMessage[]) =>
+    mode === "evening" ? Number(c.some((m) => m.isSelf)) * 10_000 + c.length : reactionCount(c) * 3 + c.length;
+  const ranked = [...groupConversations(messages)].sort((a, b) => score(b) - score(a));
   const picked: StoredMessage[][] = [];
   let size = 0;
   for (const conversation of ranked) {
-    const room = MAX_MESSAGES - size;
+    const room = max - size;
     if (room <= 0) break;
     const kept = conversation.slice(-room);
     picked.push(kept);
@@ -34,27 +39,32 @@ function pickConversations(messages: StoredMessage[]): StoredMessage[][] {
   return picked.sort((a, b) => (a[0]?.createdAt.getTime() ?? 0) - (b[0]?.createdAt.getTime() ?? 0));
 }
 
-/** Rewrites ARCHIVE-9's self state from the last 24 hours. Returns false when nothing happened. */
-export async function runReflection(deps: LearningDeps): Promise<boolean> {
+const MODES = {
+  evening: { maxMessages: 150, facts: 30, limits: SELF_STATE_LIMITS, source: "reflection" },
+  // Not counted as the daily reflection, so the evening one still happens.
+  awakening: { maxMessages: 400, facts: 60, limits: { ...SELF_STATE_LIMITS, changesPerList: 5 }, source: "initial" },
+} as const;
+
+async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", since: Date): Promise<boolean> {
   const { db, ai, log, selfId } = deps;
-  const now = new Date();
-  const since = new Date(now.getTime() - DAY);
-  const messages = await messagesSince(db, selfId, since, 2_000);
+  const config = MODES[mode];
+  const messages = await messagesSince(db, selfId, since, 20_000);
   if (messages.length === 0) {
-    log.info("nothing happened today, no reflection");
+    log.info({ mode }, "nothing to reflect on");
     return false;
   }
 
   const [state, learned, changes] = await Promise.all([
     currentSelfState(db, INITIAL_SELF_STATE),
-    factsSince(db, since, 30),
-    relationshipEventsSince(db, since, 30),
+    factsSince(db, since, config.facts),
+    mode === "evening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
   ]);
   const outcome = await reflect(ai, {
-    now,
+    mode,
+    now: new Date(),
     timezone: deps.timezone,
     state,
-    conversations: pickConversations(messages).map((c) => ({
+    conversations: pickConversations(messages, config.maxMessages, mode).map((c) => ({
       channelName: c[0]?.guildId === null ? "message privé" : deps.channelName(c[0]?.channelId ?? ""),
       messages: c,
     })),
@@ -62,12 +72,22 @@ export async function runReflection(deps: LearningDeps): Promise<boolean> {
     relationshipChanges: changes.map((r) => ({ name: r.memberName, affinityDelta: r.affinityDelta, trustDelta: r.trustDelta, reason: r.reason })),
   });
   const runId = randomUUID();
-  await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId })));
-  if (!outcome.change) throw new Error("reflection produced no usable output");
+  await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId, detail: mode })));
+  if (!outcome.change) throw new Error(`${mode} reflection produced no usable output`);
 
-  const next = applySelfStateChange(state, outcome.change);
-  const version = await saveSelfState(db, next, "reflection", null);
+  const next = applySelfStateChange(state, outcome.change, config.limits);
+  const version = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);
   await notify(db, { type: "self_state", version });
-  log.info({ version, mood: next.mood }, "reflection saved");
+  log.info({ mode, version, mood: next.mood }, "reflection saved");
   return true;
+}
+
+/** Rewrites ARCHIVE-9's self state from the last 24 hours. Returns false when nothing happened. */
+export async function runReflection(deps: LearningDeps): Promise<boolean> {
+  return reflectOn(deps, "evening", new Date(Date.now() - DAY));
+}
+
+/** A first self state built from a whole history, after a backfill. */
+export async function runAwakening(deps: LearningDeps, since: Date): Promise<boolean> {
+  return reflectOn(deps, "awakening", since);
 }

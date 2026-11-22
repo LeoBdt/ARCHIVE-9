@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { formatProfile } from "../commands.ts";
 import { runAnalysis, type LearningDeps } from "./analyse.ts";
 import { estimateAnalysisCost } from "./estimate.ts";
-import { runReflection } from "./reflect.ts";
+import { runAwakening, runReflection } from "./reflect.ts";
 
 const url = process.env.TEST_DATABASE_URL;
 const SELF = "900000000000000000";
@@ -29,6 +29,16 @@ function answer(json: unknown) {
 const model = new MockLanguageModelV4({
   doGenerate: (options) => {
     const prompt = JSON.stringify(options.prompt);
+    if (prompt.includes("première prise de conscience")) {
+      return Promise.resolve(
+        answer({
+          mood: "éveillé",
+          opinions: { add: ["a", "b", "c", "d", "e", "f"], remove: [] },
+          runningJokes: { add: ["le mot de passe 10codes"], remove: [] },
+          notes: "Un serveur de joueurs.",
+        }),
+      );
+    }
     if (prompt.includes("Ta tâche ce soir")) {
       return Promise.resolve(
         answer({ mood: "amusé", opinions: { add: ["CS2 mérite mieux"], remove: [] }, runningJokes: { add: [], remove: [] }, notes: "Tom a lâché Valorant." }),
@@ -117,6 +127,15 @@ describe.skipIf(!url)("learning cycle", () => {
       mood: "amusé",
       opinions: ["CS2 mérite mieux"],
     });
+  });
+
+  it("builds a first self state from the whole history without counting as the evening reflection", async () => {
+    expect(await runAwakening(deps, new Date(Date.now() - 30 * 24 * 60 * 60_000))).toBe(true);
+    const state = await currentSelfState(conn.db, { mood: "", opinions: [], runningJokes: [], notes: "" });
+    expect(state.mood).toBe("éveillé");
+    expect(state.opinions).toEqual(["CS2 mérite mieux", "a", "b", "c", "d", "e"]);
+    expect(state.runningJokes).toEqual(["le mot de passe 10codes"]);
+    expect(await runAwakening(deps, new Date())).toBe(false);
   });
 });
 

@@ -236,11 +236,21 @@ describe("reflect", () => {
     expect(prompt).toContain("Blagues récurrentes :\n(aucune)");
     expect(prompt).toContain("- Tom : Se dit terroriste. (blague probable)");
     expect(prompt).toContain("- Tom : affinité +2, confiance -1 (sympa)");
-    expect(prompt).toContain("### #général");
+    expect(prompt).toContain("### #général · 20 novembre");
+    expect(prompt).toContain("## Les conversations du jour");
     const quiet = buildReflectionPrompt({ ...reflection, state: { ...INITIAL_SELF_STATE, notes: "" }, conversations: [], learned: [], relationshipChanges: [] });
     expect(quiet).toContain("(rien de neuf)");
     expect(quiet).toContain("(rien de notable)");
     expect(quiet).toContain("Notes : (aucune)");
+  });
+
+  it("reads a whole history in awakening mode", async () => {
+    const prompt = buildReflectionPrompt({ ...reflection, mode: "awakening" });
+    expect(prompt).toContain("## Ce que tu as appris sur les membres");
+    expect(prompt).toContain("## Les conversations marquantes du mois");
+    const model = mockModel(mockResult(text(JSON.stringify({ mood: "m", opinions: { add: [], remove: [] }, runningJokes: { add: [], remove: [] }, notes: "" }))));
+    await reflect(new AiRuntime(routes, mockResolver({ "openrouter:main": model })), { ...reflection, mode: "awakening" });
+    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain("première prise de conscience");
   });
 
   it("returns the requested change", async () => {
