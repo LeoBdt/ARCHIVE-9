@@ -50,6 +50,13 @@
       "when": 1795373963729,
       "tag": "0006_ai_usage_version",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795375612239,
+      "tag": "0007_skill_expiry",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { INITIAL_SELF_STATE, OFFLINE_LINES, pickOfflineLine } from "./canned.ts";
+import { buildBio, INITIAL_SELF_STATE, OFFLINE_LINES, pickOfflineLine } from "./canned.ts";
 import { SERVER_DESCRIPTION } from "./prompts/server.ts";
 import { buildReplyPrompt, REPLY_SYSTEM, reply, TONE_REMINDER, type ReplyInput } from "./reply.ts";
 import { parseRoute } from "./routes.ts";
@@ -125,11 +125,13 @@ describe("skills in the reply prompt", () => {
       skills: [
         { name: "Météo", kind: "permanent", rule: "Parle de la pluie.", authorName: "Lea" },
         { name: "Pizza", kind: "triggered", rule: "L'ananas est un crime.", authorName: null },
+        { name: "Donut", kind: "permanent", rule: "Un donut en fin de message.", authorName: "Léo", until: "21:00" },
       ],
     });
     expect(prompt).toContain("## Skills qui s'appliquent ici");
     expect(prompt).toContain("- Météo, par Lea : Parle de la pluie.");
     expect(prompt).toContain("- Pizza (déclenchée par ce message), par un ancien membre : L'ananas est un crime.");
+    expect(prompt).toContain("- Donut (jusqu'à 21:00), par Léo : Un donut en fin de message.");
     expect(buildReplyPrompt(baseInput)).not.toContain("## Skills");
   });
 });
@@ -201,6 +203,15 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain("jamais de toi-même");
     expect(REPLY_SYSTEM).toContain("`/skills`");
     expect(REPLY_SYSTEM).toContain("## La règle du serveur pour les bots");
+    expect(REPLY_SYSTEM).toContain("Ne promets jamais de t'en souvenir autrement");
+  });
+});
+
+describe("bio", () => {
+  it("fits Discord's 400 characters and shows the version", () => {
+    const bio = buildBio("Zérum (49b68ca)");
+    expect(bio.length).toBeLessThanOrEqual(400);
+    expect(bio.endsWith("Version : Zérum (49b68ca)")).toBe(true);
   });
 });
 

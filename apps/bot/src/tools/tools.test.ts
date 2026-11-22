@@ -214,7 +214,7 @@ describe("findChannel", () => {
 describe("commands", () => {
   it("lists skills with their author and use count", () => {
     const text = formatSkills([
-      { id: "s", name: "Pizza", kind: "triggered", triggers: ["pizza", "ananas"], rule: "L'ananas est un crime.", authorId: "1", authorName: "tom", usageCount: 3, createdAt: new Date() },
+      { id: "s", name: "Pizza", kind: "triggered", triggers: ["pizza", "ananas"], rule: "L'ananas est un crime.", authorId: "1", authorName: "tom", usageCount: 3, expiresAt: null, createdAt: new Date() },
     ]);
     expect(text).toContain("**Skills** · 1/200");
     expect(text).toContain("- **Pizza** · si « pizza, ananas » · par <@1> · 3 fois\n  L'ananas est un crime.");

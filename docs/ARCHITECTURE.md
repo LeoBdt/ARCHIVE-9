@@ -106,6 +106,7 @@ Members teach ARCHIVE-9 skills by asking it in conversation; the model picks the
 
 - **Permanent**: given to every reply, 10 at most.
 - **Triggered**: given when the target message contains one of its triggers (whole words, case and accents ignored), 10 per reply at most, most used first.
+- Either kind can be **temporary**: the model gives a local end time (`21:00`, or a date and time), at most a week ahead, and the skill stops applying then. An expired skill frees its name.
 - 10 active skills per member, 200 in total, names unique.
 - Checked first by the code (length, triggers, no `@everyone`, no rule changes, no global silence, no identity change, no spam), then by the triage model. When no model can check it, the skill is refused.
 - A skill is counted as used each time it was given to a reply that spoke. Deleted by its author or an admin, and when its author opts out.
@@ -188,6 +189,7 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 ## Version and status
 
 - The image is built with the commit (`GIT_SHA`), turned into an invented version name such as *Novahe*: three syllable lists picked by the commit's first bytes, so a commit always gets the same name. Shown as `Novahe (a1b2c3d)`, or `dev` locally. Each AI call stores the version that made it, so Diagnostic shows the version that wrote a message. The reply prompt says which version is running and since when.
+- The bio (the application's description) is a fixed text with the version, updated at start-up when it differs.
 - The profile status is a line written by the triage model from the current self state, with an angle drawn by the code (mood, absurd thought, fake procedure…) and the last 5 lines to avoid repeats. It changes every 4 to 6 hours, and shows a fixed line while paused.
 
 ## Commands

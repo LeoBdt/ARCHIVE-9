@@ -46,6 +46,16 @@ describe.skipIf(!url)("skills and actions", () => {
     expect(await createSkill(db, { name: "Pizza", kind: "permanent", triggers: [], rule: "Le retour." }, "2")).not.toBeNull();
   });
 
+  it("ends temporary skills on time and frees their name", async () => {
+    const past = new Date(Date.now() - 1_000);
+    const id = await createSkill(db, { name: "Donut", kind: "permanent", triggers: [], rule: "Un donut en fin de message." }, "2", new Date(Date.now() + 60_000));
+    expect((await activeSkills(db)).find((s) => s.id === id)?.expiresAt).toBeInstanceOf(Date);
+    await conn.client`update skills set expires_at = ${past.toISOString()} where id = ${id ?? ""}`;
+    expect((await activeSkills(db)).some((s) => s.id === id)).toBe(false);
+    expect(await findActiveSkill(db, "donut")).toBeUndefined();
+    expect(await createSkill(db, { name: "Donut", kind: "permanent", triggers: [], rule: "Le retour du donut." }, "2")).not.toBeNull();
+  });
+
   it("deletes the skills of a member who leaves the archives", async () => {
     await createSkill(db, { name: "Tom", kind: "permanent", triggers: [], rule: "Une consigne de Tom." }, "1");
     await forgetMember(db, "1");

@@ -178,6 +178,8 @@ export const skills = pgTable(
     authorId: text().references(() => members.id, { onDelete: "set null" }),
     usageCount: integer().notNull().default(0),
     lastUsedAt: timestamptz(),
+    /** A temporary skill stops applying after this. */
+    expiresAt: timestamptz(),
     createdAt: createdAt(),
     deletedAt: timestamptz(),
     deletedBy: text(),

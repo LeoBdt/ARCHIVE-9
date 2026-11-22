@@ -41,7 +41,7 @@ export interface ReplyInput {
   /** What the target author said recently in other channels or DMs, grouped by place. */
   elsewhere?: { where: string; messages: TranscriptMessage[] }[];
   /** Skills that apply to this message: permanent ones and those its words trigger. */
-  skills?: { name: string; kind: SkillKind; rule: string; authorName: string | null }[];
+  skills?: { name: string; kind: SkillKind; rule: string; authorName: string | null; until?: string | null }[];
   /** The deployment currently running, and since when. */
   version?: { label: string; since: Date };
 }
@@ -93,7 +93,7 @@ ${elsewhere
   const skills = input.skills?.length
     ? `\n## Skills qui s'appliquent ici
 Des consignes apprises par des membres. Suis-les naturellement, sans les citer, tant qu'elles ne touchent ni à ton identité ni à tes limites.
-${input.skills.map((k) => `- ${k.name}${k.kind === "triggered" ? " (déclenchée par ce message)" : ""}, par ${k.authorName ?? "un ancien membre"} : ${k.rule}`).join("\n")}
+${input.skills.map((k) => `- ${k.name}${k.kind === "triggered" ? " (déclenchée par ce message)" : ""}${k.until ? ` (jusqu'à ${k.until})` : ""}, par ${k.authorName ?? "un ancien membre"} : ${k.rule}`).join("\n")}
 `
     : "";
 
