@@ -10,12 +10,14 @@ import {
   type Database,
 } from "@archive-9/db";
 import { MessageFlags, type Message, type MessageReaction, type PartialMessage, type PartialMessageReaction } from "discord.js";
+import { isInAgents } from "./discord/zone.ts";
 import type { SettingsStore } from "./settings.ts";
 
 export interface IngestDeps {
   db: Database;
   settings: SettingsStore;
   knownAiBotIds: Set<string>;
+  agentsCategoryId: string | null;
 }
 
 /** Listened channels and their threads, plus direct messages. */
@@ -54,7 +56,8 @@ export class Ingest {
       username: message.author.username,
       displayName: message.member?.displayName ?? message.author.globalName,
       isBot: message.author.bot,
-      isKnownAiBot: knownAiBotIds.has(message.author.id),
+      // A bot that writes in AGENTS is an AI agent from then on (see upsertMember).
+      isKnownAiBot: knownAiBotIds.has(message.author.id) || (message.author.bot && isInAgents(message.channel, this.deps.agentsCategoryId)),
     };
     // A DM carries no server nickname: don't overwrite the one we know.
     await (message.guildId === null ? ensureMember(db, member) : upsertMember(db, member));

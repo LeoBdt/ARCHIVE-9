@@ -49,6 +49,13 @@ describe.skipIf(!url)("repositories", () => {
     expect(member?.nameHistory.map((entry) => entry.name)).toEqual(["tom", "Tomtom"]);
   });
 
+  it("keeps a bot recognised as an AI agent, under its new name", async () => {
+    const bot = { id: "1574150367325855856", username: "cumslayer", isBot: true };
+    await upsertMember(db, { ...bot, displayName: "cum slayer", isKnownAiBot: true });
+    await upsertMember(db, { ...bot, displayName: "Nouveau nom", isKnownAiBot: false });
+    expect(await getMember(db, bot.id)).toMatchObject({ isKnownAiBot: true, displayName: "Nouveau nom" });
+  });
+
   it("stores, edits, reacts and deletes messages", async () => {
     const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 10, min));
     await saveMessage(db, { id: "m1", guildId: "g", channelId: "c1", authorId: "1", content: "salut", replyToId: null, mentionedIds: [], createdAt: at(0) });
