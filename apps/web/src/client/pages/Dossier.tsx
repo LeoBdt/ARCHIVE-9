@@ -14,7 +14,7 @@ function EditCard({ fact, code, memberId, onClose }: { fact: Fact; code: string;
   const [text, setText] = useState(fact.content);
   const [reason, setReason] = useState("");
   const save = useMutation({
-    mutationFn: (action: "correct" | "remove") => postJson(`/api/me/facts/${fact.id}`, action === "remove" ? { action, reason } : { action, content: text, reason }),
+    mutationFn: (action: "correct" | "remove") => postJson(`/api/facts/${fact.id}`, action === "remove" ? { action, reason } : { action, content: text, reason }),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["dossier", memberId] });
       onClose();
@@ -201,7 +201,7 @@ export function Dossier() {
                 fact={fact}
                 index={first + i}
                 onEdit={
-                  data.isMine
+                  data.canEdit
                     ? () => {
                         setEditing({ fact, code });
                       }

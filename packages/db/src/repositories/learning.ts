@@ -347,3 +347,13 @@ export async function summariesToRefresh(db: Database): Promise<string[]> {
     .where(sql`${profileSummaries.generatedAt} < ${factCorrections.createdAt}`);
   return rows.map((r) => r.memberId);
 }
+
+/** Whose profile a current fact belongs to, or undefined. */
+export async function factOwner(db: Database, factId: string): Promise<string | undefined> {
+  if (!/^[0-9a-f-]{36}$/i.test(factId)) return undefined;
+  const [row] = await db
+    .select({ memberId: profileFacts.memberId })
+    .from(profileFacts)
+    .where(and(eq(profileFacts.id, factId), isCurrent));
+  return row?.memberId;
+}

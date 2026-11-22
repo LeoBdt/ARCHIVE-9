@@ -5,11 +5,12 @@ import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./styles.css";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { getJson, HttpError, type Viewer } from "./api.ts";
 import { Boot } from "./components/Boot.tsx";
+import { startLive } from "./live.ts";
 import { Header } from "./components/Header.tsx";
 import { Access } from "./pages/Access.tsx";
 import { Archives } from "./pages/Archives.tsx";
@@ -31,6 +32,11 @@ function Site() {
   if (me.error instanceof HttpError && me.error.status === 403) return <Access refused />;
   if (!me.data) return <Navigate to="/acces" replace />;
   const viewer = me.data;
+  return <SignedIn viewer={viewer} />;
+}
+
+function SignedIn({ viewer }: { viewer: Viewer }) {
+  useEffect(() => startLive(queries), []);
   return (
     <>
       <Boot />

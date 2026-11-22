@@ -5,6 +5,7 @@ import {
   backstage,
   correctOwnFact,
   dossier,
+  factOwner,
   forgetOwnFacts,
   grantSiteAdmin,
   replyJournal,
@@ -26,8 +27,10 @@ import {
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
+import { streamSSE } from "hono/streaming";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
+import type { Live } from "./live.ts";
 import { join } from "node:path";
 
 /** What the app needs from Better Auth, so tests can stand in for it. */
@@ -45,7 +48,11 @@ export interface AppDeps {
   clientDir: string | null;
   /** Public address, for the link preview. */
   siteUrl: string;
+  /** Change notifications from the database; without it, pages just poll. */
+  live?: Live;
 }
+
+const HEARTBEAT_MS = 25_000;
 
 export type Viewer = SiteViewer & { isOwner: boolean };
 
@@ -130,6 +137,29 @@ export function createApp(deps: AppDeps) {
 
   app.get("/api/me", (c) => c.json(c.var.viewer));
 
+  // Open pages learn right away that something changed. Only the kind of change is sent,
+  // never content, so nobody learns more here than the API would show them.
+  app.get("/api/live", (c) => {
+    const live = deps.live;
+    if (!live) return c.json({ error: "unavailable" }, 503);
+    return streamSSE(c, async (stream) => {
+      const unsubscribe = live.subscribe((type) => {
+        void stream.writeSSE({ event: "change", data: type });
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+      });
+      await stream.writeSSE({ event: "ready", data: "" });
+      // A quiet stream would be cut by the tunnel: say something every 25 s.
+      for (;;) {
+        await stream.sleep(HEARTBEAT_MS);
+        if (stream.aborted) break;
+        await stream.writeSSE({ event: "ping", data: "" });
+      }
+      unsubscribe();
+    });
+  });
+
   app.get("/api/home", async (c) => {
     const [overview, settings, self] = await Promise.all([homeOverview(deps.db), readSettings(deps.db), latestSelfState(deps.db)]);
     return c.json({
@@ -148,7 +178,7 @@ export function createApp(deps: AppDeps) {
     if (!/^\d{17,20}$/.test(id)) return c.json({ error: "not_found" }, 404);
     const profile = await dossier(deps.db, id);
     if (!profile) return c.json({ error: "not_found" }, 404);
-    return c.json({ ...profile, isMine: id === c.var.viewer.id });
+    return c.json({ ...profile, isMine: id === c.var.viewer.id, canEdit: id === c.var.viewer.id || c.var.viewer.isAdmin });
   });
 
   app.get("/api/relations", async (c) => c.json(await relationsOverview(deps.db)));
@@ -170,24 +200,27 @@ export function createApp(deps: AppDeps) {
     return c.json({ ...data, paused: settings.paused });
   });
 
-  // A member's own facts: correct or remove, with a reason the bot learns from.
+  // Facts: a member edits their own; an admin may edit anyone's, and it says so in the reason.
   const factChange = z.discriminatedUnion("action", [
     z.object({ action: z.literal("correct"), content: z.string(), reason: z.string().max(300).default("") }),
     z.object({ action: z.literal("remove"), reason: z.string().trim().min(3).max(300) }),
   ]);
-  app.post("/api/me/facts/:id", async (c) => {
+  app.post("/api/facts/:id", async (c) => {
     const body = factChange.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "invalid" }, 400);
     const viewer = c.var.viewer;
     const id = c.req.param("id");
+    const owner = await factOwner(deps.db, id);
+    if (!owner || (owner !== viewer.id && !viewer.isAdmin)) return c.json({ error: "not_yours" }, 404);
+    const reason = owner === viewer.id ? body.data.reason.trim() : `[admin ${viewer.name}] ${body.data.reason.trim()}`.trim();
     if (body.data.action === "remove") {
-      const removed = await forgetOwnFacts(deps.db, viewer.id, [id], body.data.reason, "site");
-      return removed.length ? c.json({ ok: true }) : c.json({ error: "not_yours" }, 404);
+      const removed = await forgetOwnFacts(deps.db, owner, [id], reason, "site");
+      return removed.length ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
     }
     const problem = checkOwnFactText(body.data.content);
     if (problem) return c.json({ error: problem }, 400);
-    const changed = await correctOwnFact(deps.db, viewer.id, id, body.data.content.trim(), body.data.reason.trim(), "site");
-    return changed ? c.json({ ok: true, ...changed }) : c.json({ error: "not_yours" }, 404);
+    const changed = await correctOwnFact(deps.db, owner, id, body.data.content.trim(), reason, "site");
+    return changed ? c.json({ ok: true, ...changed }) : c.json({ error: "not_found" }, 404);
   });
 
   // Settings: admins only. The bot picks changes up within 30 seconds.

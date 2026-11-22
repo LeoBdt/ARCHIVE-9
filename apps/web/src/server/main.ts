@@ -5,13 +5,22 @@ import pino from "pino";
 import { createApp } from "./app.ts";
 import { createAuth } from "./auth.ts";
 import { parseWebEnv } from "./env.ts";
+import { startLive } from "./live.ts";
 
 const env = parseWebEnv();
 const log = pino({ level: env.LOG_LEVEL, base: { service: "web" } });
-const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
+const { db, client, close } = createDb(env.DATABASE_URL, { max: 5 });
 const auth = createAuth(db, env);
 
+const live = await startLive(client, (err: unknown) => {
+  log.warn({ err }, "bad live event");
+}).catch((err: unknown) => {
+  log.error({ err }, "live updates unavailable, pages will poll");
+  return undefined;
+});
+
 const app = createApp({
+  live,
   db,
   ownerId: env.SITE_OWNER_ID,
   siteUrl: env.SITE_URL,

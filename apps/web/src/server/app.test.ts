@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, ROBOTS_TXT, type AuthPort } from "./app.ts";
+import { startLive } from "./live.ts";
 
 const url = process.env.TEST_DATABASE_URL;
 const OWNER = "100000000000000001";
@@ -113,7 +114,7 @@ describe.skipIf(!url)("site server", () => {
     expect((await post("/api/access", OWNER, { memberId: OWNER, admin: false })).status).toBe(400);
   });
 
-  it("lets a member correct only their own facts", async () => {
+  it("lets a member edit only their own facts, and admins anyone's", async () => {
     await applyAnalysis(conn.db, {
       facts: [{ memberId: MEMBER, category: "identity", nature: "fact", confidence: 0.9, content: "En licence.", sourceMessageIds: [], reportedBy: null, replacesId: null }],
       retractions: [],
@@ -122,10 +123,14 @@ describe.skipIf(!url)("site server", () => {
       at: new Date(),
     });
     const [fact] = await currentFacts(conn.db, MEMBER, 5);
-    expect((await post(`/api/me/facts/${fact?.id ?? ""}`, OWNER, { action: "correct", content: "Volé." })).status).toBe(404);
-    expect((await post(`/api/me/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "06 12 34 56 78 99" })).status).toBe(400);
-    expect((await post(`/api/me/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "En master." })).status).toBe(200);
-    expect((await currentFacts(conn.db, MEMBER, 5)).map((f) => f.content)).toEqual(["En master."]);
+    expect((await post(`/api/facts/${fact?.id ?? ""}`, "100000000000000004", { action: "correct", content: "Volé." })).status).toBe(404);
+    expect((await post(`/api/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "06 12 34 56 78 99" })).status).toBe(400);
+    expect((await post(`/api/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "En master." })).status).toBe(200);
+    const [corrected] = await currentFacts(conn.db, MEMBER, 5);
+    expect(corrected?.content).toBe("En master.");
+    // The owner is an admin: they may fix anyone's profile.
+    expect((await post(`/api/facts/${corrected?.id ?? ""}`, OWNER, { action: "remove", reason: "doublon" })).status).toBe(200);
+    expect(await currentFacts(conn.db, MEMBER, 5)).toEqual([]);
   });
 
   it("shows replies in the journal, DMs only to their member", async () => {
@@ -139,6 +144,22 @@ describe.skipIf(!url)("site server", () => {
     expect(forOwner.replies).toHaveLength(2);
     const backstage = (await (await get("/api/coulisses", "100000000000000004")).json()) as { ignored: { reason: string; n: number }[] };
     expect(backstage.ignored).toEqual([{ reason: "outside_agents", n: 1 }]);
+  });
+
+  it("tells open pages when something changes, only to members", async () => {
+    const live = await startLive(conn.client, () => undefined);
+    const liveApp = createApp({ db: conn.db, auth: fakeAuth, ownerId: OWNER, clientDir: null, siteUrl: "https://archive.example.org", live });
+    expect((await liveApp.request("/api/live")).status).toBe(401);
+    const res = await liveApp.request("/api/live", { headers: { "x-test-user": MEMBER } });
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (!text.includes("event: ready")) text += decoder.decode((await reader.read()).value);
+    await recordDecision(conn.db, { channelId: "c", authorId: OWNER, outcome: "ignored", messageId: "live1", guildId: "g" });
+    while (!text.includes("data: decisions")) text += decoder.decode((await reader.read()).value);
+    expect(text).toContain("event: change");
+    await reader.cancel();
   });
 
   it("gives the site a database user that reads but can't rewrite the archives", async () => {

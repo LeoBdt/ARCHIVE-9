@@ -68,6 +68,7 @@ export interface Dossier {
   aliases: string[];
   isBot: boolean;
   isMine: boolean;
+  canEdit: boolean;
   firstSeenAt: string;
   summary: string | null;
   tagline: string | null;
