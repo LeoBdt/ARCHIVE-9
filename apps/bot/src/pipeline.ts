@@ -182,7 +182,7 @@ export class Pipeline {
       const runId = randomUUID();
       const history = await recentMessages(db, channelId, selfId, TRIAGE_WINDOW);
       const outcome = await triage(ai, {
-        transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300 }),
+        transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300, timeZone: this.deps.timezone }),
         channelName: "name" in target.channel ? target.channel.name : null,
         conversationNote: await this.conversationNote(target),
       });
@@ -270,7 +270,7 @@ export class Pipeline {
           targetId: target.id,
           targetAuthorId: target.author.id,
           triageReason: run.triageReason,
-          transcript: formatTranscript(history, { targetId: target.id }),
+          transcript: formatTranscript(history, { targetId: target.id, timeZone: this.deps.timezone }),
           participants,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
         },

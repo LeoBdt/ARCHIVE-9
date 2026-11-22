@@ -1,5 +1,5 @@
 import type { AiCallStatus, AiTask } from "@archive-9/core";
-import { arrayContains, asc, eq } from "drizzle-orm";
+import { and, arrayContains, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { aiUsage } from "../schema.ts";
 
@@ -35,4 +35,13 @@ export async function runForMessage(db: Database, messageId: string) {
     .limit(1);
   if (!match) return [];
   return db.select().from(aiUsage).where(eq(aiUsage.runId, match.runId)).orderBy(asc(aiUsage.createdAt));
+}
+
+/** Money spent on these tasks since `since`, in USD. */
+export async function aiCostSince(db: Database, tasks: AiTask[], since: Date): Promise<number> {
+  const [row] = await db
+    .select({ cost: sql<string | null>`sum(${aiUsage.costUsd})` })
+    .from(aiUsage)
+    .where(and(inArray(aiUsage.task, tasks), gte(aiUsage.createdAt, since)));
+  return Number(row?.cost ?? 0);
 }

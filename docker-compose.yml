@@ -54,6 +54,9 @@ services:
       AI_ROUTE_REPLY:
       AI_ROUTE_ANALYSIS:
       AI_ROUTE_REFLECTION:
+      ANALYSIS_DAILY_BUDGET_USD:
+      REFLECTION_HOUR:
+      MESSAGE_RETENTION_DAYS:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     mem_limit: 384m
     networks: [db, egress]

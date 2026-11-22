@@ -2,6 +2,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { ModelRef } from "./routes.ts";
 import type { AiRuntime } from "./runtime.ts";
+import { readStructured } from "./structured.ts";
 import type { UsageRecord } from "./usage.ts";
 
 export const TOOL_PACKS = ["discord-messages"] as const;
@@ -54,13 +55,8 @@ ${input.transcript}
 }
 
 function readDecision(result: unknown): TriageDecision | null {
-  try {
-    const parsed = triageSchema.safeParse((result as { output: unknown }).output);
-    return parsed.success ? { ...parsed.data, reason: parsed.data.reason.slice(0, 300) } : null;
-  } catch {
-    // The SDK throws when the model produced no structured output at all.
-    return null;
-  }
+  const decision = readStructured(result, triageSchema);
+  return decision ? { ...decision, reason: decision.reason.slice(0, 300) } : null;
 }
 
 export async function triage(ai: AiRuntime, input: TriageInput): Promise<TriageOutcome> {

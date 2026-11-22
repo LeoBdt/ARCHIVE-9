@@ -48,3 +48,13 @@ describe("formatTranscript", () => {
     expect(out.endsWith("…")).toBe(true);
   });
 });
+
+describe("formatTranscript options", () => {
+  it("shows local times, reactions and a custom self label", () => {
+    const out = formatTranscript(
+      [m({ isSelf: true, authorId: "9", reactions: { "😂": 3, "👍": 0, "<:kek:1>": 1 }, createdAt: new Date("2026-07-01T21:30:00Z") })],
+      { timeZone: "Europe/Paris", selfLabel: "ARCHIVE-9" },
+    );
+    expect(out).toBe("23:30 #1 [ARCHIVE-9 (ID 9)] : salut [😂×3 <:kek:1>×1]");
+  });
+});

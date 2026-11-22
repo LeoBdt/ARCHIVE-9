@@ -6,7 +6,7 @@
 flowchart LR
   D[Discord] <-->|gateway| BOT[bot]
   BOT --> PG[(postgres)]
-  BOT -->|reply| OR[OpenRouter · DeepSeek]
+  BOT -->|reply, analysis, reflection| OR[OpenRouter · DeepSeek]
   BOT -->|triage, fallback| G[Groq]
   BK[backup] -->|daily pg_dump| PG
 ```
@@ -25,8 +25,8 @@ Postgres settings: `shared_buffers=256MB`, `effective_cache_size=640MB`, `work_m
 
 | Package | Content |
 |---|---|
-| `core` | pure domain logic: ingress decision, bot loop guard, debouncer, transcript formatting, name matching |
-| `ai` | provider setup, fallback runtime with cooldowns, triage and reply tasks, prompts |
+| `core` | pure domain logic: ingress decision, bot loop guard, debouncer, transcript formatting, name matching, conversation grouping, relationship caps, self state limits, job schedules |
+| `ai` | provider setup, fallback runtime with cooldowns, triage, reply, analysis, summary and reflection tasks, prompts |
 | `db` | Drizzle schema, migrations and repositories |
 | `config` | shared tsconfig and ESLint |
 
@@ -91,12 +91,64 @@ Each task has an ordered chain of `provider:model`, overridable with `AI_ROUTE_*
 - When every model fails and the bot was addressed, it answers with a pre-written line, without AI.
 - Every call is stored in `ai_usage` with tokens, cost, upstream provider and the Discord messages it produced.
 
+## Learning
+
+Background jobs run in the bot process every 5 minutes.
+
+```mermaid
+flowchart LR
+  M[(messages)] -->|pending, settled 10 min| G[group into conversations]
+  G --> B[batches of ≤ 120 messages]
+  B --> A[analysis · DeepSeek]
+  A --> S{sanitise}
+  S --> F[(profile_facts)]
+  S --> R[(relationships)]
+  F --> P[summary · DeepSeek]
+  P --> PS[(profile_summaries)]
+  M --> RF[evening reflection]
+  F --> RF
+  R --> RF
+  RF --> SS[(self_state_versions)]
+```
+
+### Analysis
+
+- Runs when the oldest pending message is 4 hours old, or when a member has 25 pending messages. Messages younger than 10 minutes wait for the next run, their conversation may still be going.
+- Pending messages are grouped into conversations (same channel, no silence longer than 15 minutes). Small conversations share a batch; long ones are split. Each conversation comes with up to 6 earlier, already analysed messages as context.
+- The model gets the participants (summary, relationship, up to 20 current facts with short references `F1`, `F2`…) and the transcripts with reactions, and returns facts, retractions and relationship changes as JSON validated with zod.
+- The output is sanitised by the code before anything is written: facts must be about a listed participant, other than ARCHIVE-9 and not opted out, and cite messages of the batch; a self-declared `fact` cited from someone else's message becomes `reported`, with its reporter; a correction can only replace a fact of the same member; at most 20 facts per batch.
+- Relationship changes are capped at ±5 per batch and ±15 per member over 24 hours, counted from when the conversation happened. Relationship rows created by the analysis don't count as an introduction.
+- A batch is written in one transaction, which also marks its messages as analysed. Then each member whose facts changed gets a new summary (≤ 700 characters, read by the reply prompt) and a tagline (one line in ARCHIVE-9's voice, shown in `/mafiche`). A member with no fact left loses their summary.
+- Utility bots get no profile. Known AI bots do.
+- Analysis spending is capped by `ANALYSIS_DAILY_BUDGET_USD` over the last 24 hours. A failed batch stays pending and is retried an hour later. A Postgres advisory lock keeps two processes from analysing at once.
+- After each run, `pg_notify('archive9', …)` announces the change.
+
+### Reflection
+
+Once a day from `REFLECTION_HOUR` (local time), after a last analysis, ARCHIVE-9 rereads the last 24 hours: up to 150 messages, conversations it took part in first, plus the facts learned and the relationship changes of the day. It returns a new mood, notes, and additions and removals for its opinions and running jokes. The code allows at most 2 additions and 2 removals per list and per day, and 10 entries per list. Each reflection is a new row in `self_state_versions`. Nothing happened in 24 hours: no reflection. A failure is retried an hour later, otherwise the next day.
+
+### Purge
+
+Every 6 hours, raw messages older than `MESSAGE_RETENTION_DAYS` (30 by default) are deleted. Facts, summaries and relationships are kept.
+
+### History backfill
+
+`src/backfill.ts` reads the history of the listened channels (and their active threads) through the Discord REST API, stores the messages that are missing and analyses them. It skips opted-out members and command answers, and never goes further back than the retention period.
+
+```sh
+docker compose exec bot node src/backfill.ts --days 30 --dry-run    # counts and estimates the cost
+docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.5
+docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.1 --channel <id>
+```
+
+It holds the analysis lock for the whole run. When `--max-cost` is reached, the remaining backfilled messages are kept but marked as analysed, so the bot doesn't analyse them on its own budget. Useful at first start, after adding a channel, or after the bot was offline.
+
 ## Commands
 
 | Command | Who | Effect |
 |---|---|---|
 | `/archive-9` | everyone | introduction |
-| `/mafiche` | everyone | own profile, ephemeral; offers to opt back in when opted out |
+| `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
 | `/oublie-moi` | everyone | deletes the member's messages, facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
 | `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
@@ -124,7 +176,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `members` | members and bots seen on the server, nickname history, opt-out |
 | `messages` | raw messages from listened channels, with reactions and analysis status |
 | `profile_facts` | one learned fact per row: category, nature, confidence, sources, reporter; a correction replaces a row through `superseded_by` |
-| `profile_summaries` | short summary of each profile |
+| `profile_summaries` | short summary of each profile, used in replies, and a tagline |
 | `relationships` | ARCHIVE-9's affinity (−100 to 100), trust (0 to 100) and feeling toward each member |
 | `relationship_events` | history of relationship changes |
 | `self_state_versions` | ARCHIVE-9's evolving state, one version per row |

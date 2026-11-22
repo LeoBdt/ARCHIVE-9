@@ -1,0 +1,251 @@
+import type { TranscriptMessage } from "@archive-9/core";
+import { describe, expect, it } from "vitest";
+import { analyse, buildAnalysisPrompt, sanitiseAnalysis, type AnalysisInput, type RawAnalysis } from "./analysis.ts";
+import { INITIAL_SELF_STATE } from "./canned.ts";
+import { buildReflectionPrompt, reflect, type ReflectionInput } from "./reflection.ts";
+import { parseRoute } from "./routes.ts";
+import { AiRuntime, type Routes } from "./runtime.ts";
+import { buildSummaryPrompt, summarise } from "./summary.ts";
+import { mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
+
+const chain = parseRoute("openrouter:main");
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain };
+const runtime = (output: unknown) =>
+  new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text(typeof output === "string" ? output : JSON.stringify(output)))) }));
+
+const SELF = "9";
+const msg = (id: string, authorId: string, content: string, minute = 0): TranscriptMessage => ({
+  id,
+  authorId,
+  authorName: authorId === "1" ? "Tom" : authorId === "2" ? "Léa" : "ARCHIVE-9",
+  authorIsBot: authorId === SELF,
+  isSelf: authorId === SELF,
+  content,
+  replyToId: null,
+  createdAt: new Date(Date.UTC(2026, 10, 20, 20, minute)),
+});
+
+const input: AnalysisInput = {
+  selfId: SELF,
+  timezone: "Europe/Paris",
+  participants: [
+    {
+      id: "1",
+      name: "Tom",
+      isBot: false,
+      summary: "Joueur de Valorant.",
+      affinity: 20,
+      trust: 60,
+      feeling: "complice",
+      facts: [{ id: "uuid-a", category: "games", nature: "fact", confidence: 0.9, content: "Joue à Valorant." }],
+    },
+    {
+      id: "2",
+      name: "Léa",
+      isBot: false,
+      summary: null,
+      affinity: null,
+      trust: null,
+      feeling: null,
+      facts: [{ id: "uuid-b", category: "identity", nature: "fact", confidence: 0.8, content: "A 24 ans." }],
+    },
+    { id: SELF, name: "ARCHIVE-9", isBot: true, summary: null, affinity: null, trust: null, feeling: null, facts: [] },
+  ],
+  conversations: [
+    {
+      channelName: "général",
+      context: [msg("10", "2", "on parle de quoi")],
+      messages: [msg("11", "1", "je lâche Valorant pour CS2", 1), msg("12", "2", "Tom ronfle en vocal", 2), msg("13", SELF, "noté", 3)],
+    },
+  ],
+};
+
+const fact = (over: Partial<RawAnalysis["facts"][number]>): RawAnalysis["facts"][number] => ({
+  memberId: "1",
+  category: "games",
+  nature: "fact",
+  confidence: 0.9,
+  content: "Joue à CS2.",
+  sourceMessageIds: ["11"],
+  reportedBy: null,
+  replaces: null,
+  ...over,
+});
+
+const empty: RawAnalysis = { facts: [], retractions: [], relationships: [] };
+
+describe("buildAnalysisPrompt", () => {
+  it("lists participants with fact references and marks the context", () => {
+    const prompt = buildAnalysisPrompt(input);
+    expect(prompt).toContain("ARCHIVE-9 a l'ID 9.");
+    expect(prompt).toContain("- Tom (ID 1) · affinité 20/100, confiance 60/100, ressenti : complice");
+    expect(prompt).toContain("F1 · games · fait · 0.9 · Joue à Valorant.");
+    expect(prompt).toContain("F2 · identity · fait · 0.8 · A 24 ans.");
+    expect(prompt).toContain("- Léa (ID 2) · aucune relation");
+    expect(prompt).toContain("Aucune info connue.");
+    expect(prompt).toContain("## Conversation 1 · #général · vendredi 20 novembre 2026");
+    expect(prompt).toMatch(/\(contexte, déjà analysé\)\n21:00 #10 .*\n\(à analyser\)\n21:01 #11/);
+    expect(prompt).toContain("[ARCHIVE-9 (ID 9)] : noté");
+  });
+
+  it("handles a batch without context or participants", () => {
+    const prompt = buildAnalysisPrompt({ ...input, participants: [], conversations: [{ channelName: null, context: [], messages: [msg("11", "1", "x")] }] });
+    expect(prompt).toContain("- (aucun)");
+    expect(prompt).toContain("#inconnu");
+    expect(prompt).not.toContain("contexte");
+  });
+});
+
+describe("sanitiseAnalysis", () => {
+  it("keeps valid facts and maps corrections to the right fact", () => {
+    const result = sanitiseAnalysis({ ...empty, facts: [fact({ replaces: "f1", sourceMessageIds: ["#11", "11", "999"] })] }, input);
+    expect(result.facts).toEqual([
+      {
+        memberId: "1",
+        category: "games",
+        nature: "fact",
+        confidence: 0.9,
+        content: "Joue à CS2.",
+        sourceMessageIds: ["11"],
+        reportedBy: null,
+        replacesId: "uuid-a",
+      },
+    ]);
+  });
+
+  it("drops facts about unknown people or ARCHIVE-9, without sources, or duplicated", () => {
+    const result = sanitiseAnalysis(
+      {
+        ...empty,
+        facts: [
+          fact({ memberId: "77" }),
+          fact({ memberId: SELF, sourceMessageIds: ["13"] }),
+          fact({ sourceMessageIds: ["10"] }),
+          fact({ content: "  " }),
+          fact({}),
+          fact({ content: "joue à cs2." }),
+        ],
+      },
+      input,
+    );
+    expect(result.facts).toHaveLength(1);
+  });
+
+  it("turns a fact said by someone else into a reported one, with its reporter", () => {
+    const result = sanitiseAnalysis(
+      { ...empty, facts: [fact({ content: "Ronfle en vocal.", category: "habits", sourceMessageIds: ["12"] })] },
+      input,
+    );
+    expect(result.facts[0]).toMatchObject({ nature: "reported", reportedBy: "2" });
+    const claimed = sanitiseAnalysis({ ...empty, facts: [fact({ nature: "reported", reportedBy: "ID 2", sourceMessageIds: ["12"] })] }, input);
+    expect(claimed.facts[0]?.reportedBy).toBe("2");
+  });
+
+  it("never lets a correction touch another member's fact, and clamps confidence", () => {
+    const result = sanitiseAnalysis({ ...empty, facts: [fact({ replaces: "F2", confidence: 7 })] }, input);
+    expect(result.facts[0]).toMatchObject({ replacesId: null, confidence: 1 });
+    expect(sanitiseAnalysis({ ...empty, facts: [fact({ confidence: Number.NaN })] }, input).facts[0]?.confidence).toBe(0.5);
+  });
+
+  it("caps the number of facts", () => {
+    const many = Array.from({ length: 30 }, (_, i) => fact({ content: `Info ${String(i)}` }));
+    expect(sanitiseAnalysis({ ...empty, facts: many }, input).facts).toHaveLength(20);
+  });
+
+  it("keeps known retractions and clean relationship updates", () => {
+    const result = sanitiseAnalysis(
+      {
+        facts: [],
+        retractions: [{ ref: "F2", reason: "elle dément" }, { ref: "F9", reason: "?" }],
+        relationships: [
+          { memberId: "1", affinityDelta: 9.4, trustDelta: -2.2, reason: " ", sourceMessageId: "#11", feeling: " ", howTheyTreatMe: "Me parle comme à un pote." },
+          { memberId: "1", affinityDelta: 1, trustDelta: 1, reason: "doublon", sourceMessageId: null, feeling: null, howTheyTreatMe: null },
+          { memberId: SELF, affinityDelta: 1, trustDelta: 1, reason: "soi", sourceMessageId: null, feeling: null, howTheyTreatMe: null },
+          { memberId: "2", affinityDelta: Number.NaN, trustDelta: 0, reason: "ok", sourceMessageId: "10", feeling: "méfiant", howTheyTreatMe: null },
+        ],
+      },
+      input,
+    );
+    expect(result.retractions).toEqual([{ factId: "uuid-b", memberId: "2" }]);
+    expect(result.relationships).toEqual([
+      { memberId: "1", affinityDelta: 5, trustDelta: -2, reason: "sans précision", sourceMessageId: "11", feeling: null, howTheyTreatMe: "Me parle comme à un pote." },
+      { memberId: "2", affinityDelta: 0, trustDelta: 0, reason: "ok", sourceMessageId: null, feeling: "méfiant", howTheyTreatMe: null },
+    ]);
+  });
+});
+
+describe("analyse", () => {
+  it("returns the sanitised result", async () => {
+    const outcome = await analyse(runtime({ ...empty, facts: [fact({})] }), input);
+    expect(outcome.result?.facts).toHaveLength(1);
+    expect(outcome.ref?.id).toBe("openrouter:main");
+    expect(outcome.usage).toHaveLength(1);
+  });
+
+  it("returns no result when the output is invalid", async () => {
+    const outcome = await analyse(runtime("pas du json"), input);
+    expect(outcome.result).toBeNull();
+    expect(outcome.usage[0]?.status).toBe("error");
+  });
+});
+
+describe("summarise", () => {
+  const summaryInput = {
+    name: "Tom",
+    isBot: false,
+    feeling: "complice",
+    facts: [
+      { category: "games" as const, nature: "fact" as const, confidence: 0.9, content: "Joue à CS2.", reportedByName: null },
+      { category: "habits" as const, nature: "reported" as const, confidence: 0.5, content: "Ronfle en vocal.", reportedByName: "Léa" },
+      { category: "humor" as const, nature: "probable_joke" as const, confidence: 0.3, content: "Se dit terroriste.", reportedByName: null },
+    ],
+  };
+
+  it("describes each fact with its nature", () => {
+    const prompt = buildSummaryPrompt(summaryInput);
+    expect(prompt).toContain("Membre : Tom\nCe qu'ARCHIVE-9 ressent pour lui : complice");
+    expect(prompt).toContain("- [habits · rapporté par Léa · 0.5] Ronfle en vocal.");
+    expect(prompt).toContain("- [humor · blague probable · 0.3] Se dit terroriste.");
+    expect(buildSummaryPrompt({ ...summaryInput, isBot: true, feeling: null })).toContain("(un autre bot IA du serveur)");
+  });
+
+  it("returns a trimmed summary, or null when empty or invalid", async () => {
+    expect((await summarise(runtime({ summary: " Joueur de CS2. ", tagline: "Il vise mieux qu'il ne parle." }), summaryInput)).summary).toEqual({
+      summary: "Joueur de CS2.",
+      tagline: "Il vise mieux qu'il ne parle.",
+    });
+    expect((await summarise(runtime({ summary: " ", tagline: "x" }), summaryInput)).summary).toBeNull();
+    expect((await summarise(runtime("nope"), summaryInput)).summary).toBeNull();
+  });
+});
+
+describe("reflect", () => {
+  const reflection: ReflectionInput = {
+    now: new Date(Date.UTC(2026, 10, 20, 22)),
+    timezone: "Europe/Paris",
+    state: { ...INITIAL_SELF_STATE, opinions: ["CS2 > Valorant"] },
+    conversations: [{ channelName: "général", messages: [msg("11", "1", "salut", 1)] }],
+    learned: [{ name: "Tom", nature: "probable_joke", content: "Se dit terroriste." }],
+    relationshipChanges: [{ name: "Tom", affinityDelta: 2, trustDelta: -1, reason: "sympa" }],
+  };
+
+  it("numbers the current state and lists the day", () => {
+    const prompt = buildReflectionPrompt(reflection);
+    expect(prompt).toContain("Nous sommes le vendredi 20 novembre 2026.");
+    expect(prompt).toContain("Opinions :\n1. CS2 > Valorant");
+    expect(prompt).toContain("Blagues récurrentes :\n(aucune)");
+    expect(prompt).toContain("- Tom : Se dit terroriste. (blague probable)");
+    expect(prompt).toContain("- Tom : affinité +2, confiance -1 (sympa)");
+    expect(prompt).toContain("### #général");
+    const quiet = buildReflectionPrompt({ ...reflection, state: { ...INITIAL_SELF_STATE, notes: "" }, conversations: [], learned: [], relationshipChanges: [] });
+    expect(quiet).toContain("(rien de neuf)");
+    expect(quiet).toContain("(rien de notable)");
+    expect(quiet).toContain("Notes : (aucune)");
+  });
+
+  it("returns the requested change", async () => {
+    const change = { mood: "amusé", opinions: { add: ["x"], remove: [] }, runningJokes: { add: [], remove: [] }, notes: "n" };
+    expect((await reflect(runtime(change), reflection)).change).toEqual(change);
+    expect((await reflect(runtime("nope"), reflection)).change).toBeNull();
+  });
+});

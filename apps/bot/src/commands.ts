@@ -1,5 +1,5 @@
 import { INTRODUCTION } from "@archive-9/ai";
-import { forgetMember, optBackIn, profileOverview, runForMessage, type Database } from "@archive-9/db";
+import { currentFacts, forgetMember, optBackIn, profileOverview, runForMessage, type CurrentFact, type Database } from "@archive-9/db";
 import {
   ActionRowBuilder,
   ApplicationCommandType,
@@ -76,14 +76,54 @@ async function myProfile(i: ChatInputCommandInteraction, deps: CommandDeps) {
     });
     return;
   }
-  const lines = [`**Dossier ${i.user.id}**`, `${String(overview.messageCount)} messages archivés, ${String(overview.factCount)} fragments retenus.`];
-  if (overview.summary) lines.push("", overview.summary);
-  else lines.push("", "Rien d'exploitable pour l'instant. Patience, j'observe.");
-  if (overview.relationship) {
-    const r = overview.relationship;
-    lines.push("", `Affinité ${String(r.affinity)}/100 · confiance ${String(r.trust)}/100${r.feeling ? ` · ${r.feeling}` : ""}`);
+  const facts = await currentFacts(deps.db, i.user.id, PROFILE_FACTS);
+  await i.reply({ content: formatProfile(i.user.displayName, i.user.id, overview, facts), flags: ephemeral });
+}
+
+const PROFILE_FACTS = 12;
+
+function factLine(fact: CurrentFact): string {
+  const note =
+    fact.nature === "reported"
+      ? ` *(selon ${fact.reportedByName ?? "quelqu'un"})*`
+      : fact.nature === "probable_joke"
+        ? " *(pour rire, je pense)*"
+        : fact.nature === "inference"
+          ? " *(déduit)*"
+          : "";
+  return `- ${fact.content}${note}`;
+}
+
+/** The /mafiche answer, kept under Discord's 2000 characters. */
+export function formatProfile(
+  name: string,
+  id: string,
+  overview: Awaited<ReturnType<typeof profileOverview>>,
+  facts: CurrentFact[],
+): string {
+  const lines = [`**Dossier n°${id}** · ${name}`];
+  if (overview.tagline) lines.push(`> ${overview.tagline}`);
+  const r = overview.relationship;
+  const relation = r ? ` · affinité ${String(r.affinity)}/100 · confiance ${String(r.trust)}/100${r.feeling ? ` · ${r.feeling}` : ""}` : "";
+  lines.push(`-# ${String(overview.messageCount)} messages archivés · ${String(overview.factCount)} fragments retenus${relation}`);
+  if (!overview.summary && facts.length === 0) {
+    lines.push("", "Rien d'exploitable pour l'instant. Je relis les conversations toutes les quelques heures. Patience, j'observe.");
+    return lines.join("\n");
   }
-  await i.reply({ content: lines.join("\n"), flags: ephemeral });
+  if (overview.summary) lines.push("", overview.summary);
+  if (facts.length > 0) lines.push("", "**Derniers fragments**");
+  let length = lines.join("\n").length;
+  let shown = 0;
+  for (const fact of facts) {
+    const line = factLine(fact);
+    if (length + line.length + 60 > 2000) break;
+    lines.push(line);
+    length += line.length + 1;
+    shown += 1;
+  }
+  const hidden = overview.factCount - shown;
+  if (hidden > 0) lines.push(`-# …et ${String(hidden)} autres.`);
+  return lines.join("\n");
 }
 
 async function forgetMe(i: ChatInputCommandInteraction) {

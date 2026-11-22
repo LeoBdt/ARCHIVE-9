@@ -52,6 +52,10 @@ const schema = z.object({
   AI_ROUTE_REPLY: route(DEFAULT_ROUTES.reply),
   AI_ROUTE_ANALYSIS: route(DEFAULT_ROUTES.analysis),
   AI_ROUTE_REFLECTION: route(DEFAULT_ROUTES.reflection),
+
+  ANALYSIS_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
+  REFLECTION_HOUR: z.coerce.number().int().min(0).max(23).default(23),
+  MESSAGE_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 export type Env = z.infer<typeof schema>;

@@ -18,6 +18,7 @@ export async function profileOverview(db: Database, memberId: string) {
     factCount: facts?.n ?? 0,
     messageCount: msgs?.n ?? 0,
     summary: summary?.summary ?? null,
+    tagline: summary?.tagline ?? null,
     relationship: relation ?? null,
   };
 }
