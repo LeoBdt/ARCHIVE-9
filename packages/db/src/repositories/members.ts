@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { members } from "../schema.ts";
 
@@ -89,4 +89,30 @@ export async function optedOutIds(db: Database, ids: string[]): Promise<Set<stri
 export async function getMember(db: Database, id: string) {
   const [row] = await db.select().from(members).where(eq(members.id, id));
   return row;
+}
+
+/** Marks who is on the server right now, creating rows for members who never wrote. */
+export async function syncGuildMembers(db: Database, current: MemberInput[]): Promise<void> {
+  await db.transaction(async (tx) => {
+    for (const member of current) {
+      const name = member.displayName ?? member.username;
+      await tx
+        .insert(members)
+        .values({ ...member, inGuild: true, nameHistory: [{ name, seenAt: new Date().toISOString() }] })
+        .onConflictDoUpdate({
+          target: members.id,
+          set: { username: member.username, displayName: member.displayName, inGuild: true },
+        });
+    }
+    const ids = current.map((m) => m.id);
+    await tx
+      .update(members)
+      .set({ inGuild: false })
+      .where(ids.length ? and(eq(members.isServer, false), notInArray(members.id, ids)) : eq(members.isServer, false));
+  });
+}
+
+export async function setInGuild(db: Database, input: MemberInput, inGuild: boolean): Promise<void> {
+  if (inGuild) await upsertMember(db, input);
+  await db.update(members).set({ inGuild }).where(eq(members.id, input.id));
 }

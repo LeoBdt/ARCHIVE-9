@@ -57,6 +57,13 @@
       "when": 1795375612239,
       "tag": "0007_skill_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795382855018,
+      "tag": "0008_site",
+      "breakpoints": true
     }
   ]
 }

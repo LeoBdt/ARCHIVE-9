@@ -24,3 +24,9 @@ export async function lastReflectionAt(db: Database): Promise<Date | null> {
     .where(eq(selfStateVersions.source, "reflection"));
   return row?.at ?? null;
 }
+
+/** Latest self state, or null before the bot's first run. Never writes. */
+export async function latestSelfState(db: Database): Promise<SelfState | null> {
+  const [latest] = await db.select({ state: selfStateVersions.state }).from(selfStateVersions).orderBy(desc(selfStateVersions.version)).limit(1);
+  return latest?.state ?? null;
+}

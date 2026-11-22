@@ -51,6 +51,8 @@ export const members = pgTable("members", {
   isKnownAiBot: boolean().notNull().default(false),
   /** The row holding the server's own profile, keyed by the guild ID. */
   isServer: boolean().notNull().default(false),
+  /** On the server right now, kept by the bot: the site only lets these people in. */
+  inGuild: boolean().notNull().default(false),
   optedOutAt: timestamptz(),
   firstSeenAt: createdAt(),
   lastSeenAt: createdAt(),
@@ -241,4 +243,70 @@ export const settings = pgTable("settings", {
   value: jsonb().notNull(),
   updatedBy: text(),
   updatedAt: createdAt(),
+});
+
+// Site login (Better Auth). Discord gives only the identity: no real email, no OAuth token kept.
+export const webUser = pgTable("web_user", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  /** Placeholder built from the Discord ID: Better Auth needs one, the site never asks for it. */
+  email: text().notNull().unique(),
+  emailVerified: boolean().notNull().default(false),
+  image: text(),
+  discordId: text().notNull().unique(),
+  createdAt: createdAt(),
+  updatedAt: createdAt(),
+});
+
+export const webSession = pgTable(
+  "web_session",
+  {
+    id: text().primaryKey(),
+    expiresAt: timestamptz().notNull(),
+    token: text().notNull().unique(),
+    ipAddress: text(),
+    userAgent: text(),
+    userId: text()
+      .notNull()
+      .references(() => webUser.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    updatedAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
+export const webAccount = pgTable("web_account", {
+  id: text().primaryKey(),
+  accountId: text().notNull(),
+  providerId: text().notNull(),
+  userId: text()
+    .notNull()
+    .references(() => webUser.id, { onDelete: "cascade" }),
+  accessToken: text(),
+  refreshToken: text(),
+  idToken: text(),
+  accessTokenExpiresAt: timestamptz(),
+  refreshTokenExpiresAt: timestamptz(),
+  scope: text(),
+  password: text(),
+  createdAt: createdAt(),
+  updatedAt: createdAt(),
+});
+
+export const webVerification = pgTable("web_verification", {
+  id: text().primaryKey(),
+  identifier: text().notNull(),
+  value: text().notNull(),
+  expiresAt: timestamptz().notNull(),
+  createdAt: createdAt(),
+  updatedAt: createdAt(),
+});
+
+/** Site admins, chosen by the site owner (SITE_OWNER_ID), who is always one. */
+export const siteAdmins = pgTable("site_admins", {
+  memberId: text()
+    .primaryKey()
+    .references(() => members.id, { onDelete: "cascade" }),
+  grantedBy: text().notNull(),
+  createdAt: createdAt(),
 });

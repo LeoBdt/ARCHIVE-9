@@ -22,6 +22,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ["apps/web/src/client/**"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     files: ["**/*.js"],
     ...tseslint.configs.disableTypeChecked,
   },

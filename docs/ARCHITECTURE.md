@@ -192,6 +192,19 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 - The bio (the application's description) is a fixed text with the version, updated at start-up when it differs.
 - The profile status is a line written by the triage model from the current self state, with an angle drawn by the code (mood, absurd thought, fake procedure…) and the last 5 lines to avoid repeats. It changes every 4 to 6 hours, and shows a fixed line while paused.
 
+## Site
+
+`apps/web`: a Hono server (API, Better Auth, the built client) and a React client built by Vite. Pixel art look: Silkscreen and JetBrains Mono, served by the site itself.
+
+- **Access**: Discord login with the `identify` scope only. Better Auth needs an email, so the user row gets `<discord id>@discord.invalid`; OAuth tokens are dropped before they are stored. A session is only created for someone the bot sees on the server, and every API call checks it again: leaving the server closes the site at once.
+- **Who is on the server**: the bot syncs `members.in_guild` from the guild member list at start-up, then on every join and leave.
+- **Admins**: `SITE_OWNER_ID` is always admin; the other admins are in `site_admins`.
+- **Database**: the site connects as `archive9_web`, created by the bot after its migrations from `WEB_DB_PASSWORD`. It can read every table but only write its login tables and `site_admins`. The site never migrates.
+- **Security**: strict Content-Security-Policy (`'self'` only), HSTS, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `HttpOnly` / `Secure` / `SameSite=Lax` cookies, Better Auth origin checks and rate limit, client IP from `CF-Connecting-IP`.
+- **Not indexed**: `robots.txt` disallows everything, every response has `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`, and the page has the matching `meta robots`.
+- **Network**: no published port. The `tunnel` service (`cloudflared`, pinned version) reaches `web:3000`; the Cloudflare public hostname points there.
+- **Pages so far**: login (« Accès au noyau »), a start-up sequence played once per session, and the home page (sprite, status, version, mood, counters, most consulted profiles, latest events, skills), refreshed every 30 s. Other sections show a placeholder.
+
 ## Commands
 
 | Command | Who | Effect |
@@ -227,7 +240,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 
 | Table | Content |
 |---|---|
-| `members` | members and bots seen on the server, nickname history, opt-out; one row for the server's own profile |
+| `members` | members and bots seen on the server, nickname history, opt-out, whether they are on the server now; one row for the server's own profile |
 | `messages` | raw messages from listened channels, with reactions and analysis status |
 | `profile_facts` | one learned fact per row: category, nature, confidence, sources, reporter; a correction replaces a row through `superseded_by` |
 | `profile_summaries` | short summary of each profile, used in replies, and a tagline |
@@ -237,7 +250,9 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `skills` | rules taught by members: name, kind (`permanent` or `triggered`), triggers, author, use count |
 | `actions_log` | Discord actions: tool, tier, status (pending, done, refused, failed, cancelled, undone), refusal reason, value before the change, undo |
 | `ai_usage` | AI calls: task, model, provider, tokens, cost, duration, triage reason or tools used, produced messages |
-| `settings` | settings editable at runtime |
+| `settings` | settings editable at runtime, plus the running version and status lines |
+| `web_user`, `web_session`, `web_account`, `web_verification` | site logins (Better Auth), without email or OAuth tokens |
+| `site_admins` | site admins named by the owner |
 
 Deleting a member cascades to their messages, facts, summary and relationship.
 
