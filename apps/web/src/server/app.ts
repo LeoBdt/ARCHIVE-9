@@ -1,4 +1,18 @@
-import { homeOverview, latestSelfState, readSettings, siteViewer, type Database, type SiteViewer } from "@archive-9/db";
+import {
+  actionJournal,
+  dossier,
+  homeOverview,
+  latestSelfState,
+  listDossiers,
+  memoryOverview,
+  readSettings,
+  recentEvents,
+  relationsOverview,
+  siteViewer,
+  skillsOverview,
+  type Database,
+  type SiteViewer,
+} from "@archive-9/db";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -108,6 +122,30 @@ export function createApp(deps: AppDeps) {
       paused: settings.paused,
       version: settings.botVersion,
     });
+  });
+
+  app.get("/api/dossiers", async (c) => c.json(await listDossiers(deps.db, (c.req.query("q") ?? "").slice(0, 80))));
+
+  app.get("/api/dossiers/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!/^\d{17,20}$/.test(id)) return c.json({ error: "not_found" }, 404);
+    const profile = await dossier(deps.db, id);
+    if (!profile) return c.json({ error: "not_found" }, 404);
+    return c.json({ ...profile, isMine: id === c.var.viewer.id });
+  });
+
+  app.get("/api/relations", async (c) => c.json(await relationsOverview(deps.db)));
+
+  app.get("/api/memory", async (c) => {
+    const [memory, settings] = await Promise.all([memoryOverview(deps.db), readSettings(deps.db)]);
+    return c.json({ ...memory, status: settings.paused ? null : (settings.statusLines[0] ?? null), version: settings.botVersion });
+  });
+
+  app.get("/api/skills", async (c) => c.json(await skillsOverview(deps.db)));
+
+  app.get("/api/journal", async (c) => {
+    const [actions, events] = await Promise.all([actionJournal(deps.db), recentEvents(deps.db, 60)]);
+    return c.json({ actions, events });
   });
 
   app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));

@@ -48,3 +48,70 @@ export async function signOut(): Promise<void> {
   await fetch("/api/auth/sign-out", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   window.location.assign("/acces");
 }
+
+export type FactNature = "fact" | "reported" | "probable_joke" | "inference";
+
+export interface DossierSummary {
+  id: string;
+  name: string;
+  isBot: boolean;
+  tagline: string | null;
+  affinity: number | null;
+  facts: number;
+  messages: number;
+  lastSeenAt: string;
+}
+
+export interface Dossier {
+  id: string;
+  name: string;
+  aliases: string[];
+  isBot: boolean;
+  isMine: boolean;
+  firstSeenAt: string;
+  summary: string | null;
+  tagline: string | null;
+  messages: number;
+  relationship: { affinity: number; trust: number; feeling: string | null; howTheyTreatMe: string | null } | null;
+  facts: { id: string; category: string; nature: FactNature; confidence: number; content: string; reportedByName: string | null; source: string | null; createdAt: string }[];
+  events: { affinityDelta: number; trustDelta: number; reason: string; createdAt: string }[];
+  affinityHistory: number[];
+}
+
+export interface Relations {
+  people: { id: string; name: string; isBot: boolean; affinity: number; trust: number; feeling: string | null; week: number }[];
+  moves: { name: string; affinityDelta: number; trustDelta: number; reason: string; createdAt: string }[];
+}
+
+export interface SelfStateView {
+  mood: string;
+  opinions: string[];
+  runningJokes: string[];
+  notes: string;
+  resolutions?: string[];
+}
+
+export interface Memory {
+  history: { version: number; state: SelfStateView; source: "initial" | "reflection" | "rollback"; createdAt: string }[];
+  pending: { author: string; content: string; createdAt: string }[];
+  status: string | null;
+  version: { label: string; startedAt: string } | null;
+}
+
+export interface SkillView {
+  id: string;
+  name: string;
+  kind: "triggered" | "permanent";
+  triggers: string[];
+  rule: string;
+  author: string | null;
+  uses: number;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface Journal {
+  actions: { id: string; tool: string; tier: "free" | "controlled"; params: Record<string, unknown>; status: "done" | "refused" | "failed" | "undone"; refusalReason: string | null; requestedBy: string | null; createdAt: string; undoneAt: string | null }[];
+  events: Home["feed"];
+}

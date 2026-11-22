@@ -12,7 +12,13 @@ import { getJson, HttpError, type Viewer } from "./api.ts";
 import { Boot } from "./components/Boot.tsx";
 import { Header } from "./components/Header.tsx";
 import { Access } from "./pages/Access.tsx";
+import { Archives } from "./pages/Archives.tsx";
+import { Dossier } from "./pages/Dossier.tsx";
 import { Home } from "./pages/Home.tsx";
+import { Journal } from "./pages/Journal.tsx";
+import { Memory } from "./pages/Memory.tsx";
+import { Relations } from "./pages/Relations.tsx";
+import { Skills } from "./pages/Skills.tsx";
 import { Soon } from "./pages/Soon.tsx";
 
 const queries = new QueryClient({ defaultOptions: { queries: { retry: (count, error) => !(error instanceof HttpError) && count < 2 } } });
@@ -29,6 +35,12 @@ function Site() {
       <Header viewer={viewer} />
       <Routes>
         <Route path="/" element={<Home viewer={viewer} />} />
+        <Route path="/archives" element={<Archives />} />
+        <Route path="/archives/:id" element={<Dossier />} />
+        <Route path="/relations" element={<Relations />} />
+        <Route path="/memoire" element={<Memory />} />
+        <Route path="/skills" element={<Skills />} />
+        <Route path="/journal" element={<Journal />} />
         <Route path="*" element={<Soon />} />
       </Routes>
     </>

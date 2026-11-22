@@ -10,6 +10,7 @@ export * from "./repositories/profiles.ts";
 export * from "./repositories/relationships.ts";
 export * from "./repositories/self-state.ts";
 export * from "./repositories/settings.ts";
+export * from "./repositories/site-pages.ts";
 export * from "./repositories/site.ts";
 export * from "./repositories/skills.ts";
 export * as schema from "./schema.ts";
