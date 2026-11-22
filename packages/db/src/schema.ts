@@ -205,6 +205,7 @@ export const aiUsage = pgTable(
     durationMs: integer().notNull(),
     status: aiCallStatus().notNull(),
     error: text(),
+    detail: text(),
     replyMessageIds: text().array().notNull().default(sql`'{}'::text[]`),
     createdAt: createdAt(),
   },

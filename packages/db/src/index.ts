@@ -1,3 +1,10 @@
 export * from "./client.ts";
 export * from "./migrate.ts";
+export * from "./repositories/ai-usage.ts";
+export * from "./repositories/members.ts";
+export * from "./repositories/messages.ts";
+export * from "./repositories/profiles.ts";
+export * from "./repositories/relationships.ts";
+export * from "./repositories/self-state.ts";
+export * from "./repositories/settings.ts";
 export * as schema from "./schema.ts";

@@ -8,8 +8,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@archive-9/ai": "workspace:*",
     "@archive-9/core": "workspace:*",
     "@archive-9/db": "workspace:*",
+    "ai": "^7.0.179",
     "discord.js": "^14.28.1",
     "pino": "^10.4.0",
     "zod": "^4.6.7"

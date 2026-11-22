@@ -12,7 +12,7 @@ packages/
   db/         Drizzle schema, migrations, database access
   config/     shared tsconfig and ESLint
 docker/       Dockerfiles
-docs/         architecture and deployment
+docs/         architecture
 ```
 
 ## Development
@@ -45,4 +45,3 @@ TypeScript runs directly on Node, with no build step.
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Deployment](docs/DEPLOY.md)
