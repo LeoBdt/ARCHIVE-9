@@ -143,6 +143,10 @@ describe.skipIf(!url)("learning cycle", () => {
     expect((await currentFacts(conn.db, "500000000000000000", 10)).map((f) => f.content)).toContain("Le mot de passe 10codes revient sans cesse.");
     expect((await profileOverview(conn.db, "500000000000000000")).factCount).toBe(2);
     expect(await runAwakening(deps, new Date())).toBe(false);
+
+    const before = await currentSelfState(conn.db, { mood: "", opinions: [], runningJokes: [], notes: "" });
+    expect(await runAwakening(deps, new Date(Date.now() - 30 * 24 * 60 * 60_000), { serverOnly: true })).toBe(true);
+    expect(await currentSelfState(conn.db, { mood: "", opinions: [], runningJokes: [], notes: "" })).toEqual(before);
   });
 });
 

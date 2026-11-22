@@ -47,7 +47,7 @@ const MODES = {
   awakening: { maxMessages: 400, facts: 60, limits: { ...SELF_STATE_LIMITS, changesPerList: 5 }, source: "initial" },
 } as const;
 
-async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", since: Date): Promise<boolean> {
+async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", since: Date, keepSelfState = false): Promise<boolean> {
   const { db, ai, log, selfId } = deps;
   const config = MODES[mode];
   const messages = await messagesSince(db, selfId, since, 20_000);
@@ -92,6 +92,7 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     log.info({ facts: outcome.serverFacts.length }, "server profile seeded");
   }
 
+  if (keepSelfState) return true;
   const next = applySelfStateChange(state, outcome.change, config.limits);
   const version = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);
   await notify(db, { type: "self_state", version });
@@ -104,7 +105,10 @@ export async function runReflection(deps: LearningDeps): Promise<boolean> {
   return reflectOn(deps, "evening", new Date(Date.now() - DAY));
 }
 
-/** A first self state built from a whole history, after a backfill. */
-export async function runAwakening(deps: LearningDeps, since: Date): Promise<boolean> {
-  return reflectOn(deps, "awakening", since);
+/**
+ * A first self state built from a whole history, after a backfill. With `serverOnly`, the
+ * history only feeds the server's profile and the self state is left as it is.
+ */
+export async function runAwakening(deps: LearningDeps, since: Date, options: { serverOnly?: boolean } = {}): Promise<boolean> {
+  return reflectOn(deps, "awakening", since, options.serverOnly);
 }
