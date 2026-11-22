@@ -160,13 +160,15 @@ export class Pipeline {
     }
 
     const optedOut = (await optedOutIds(this.deps.db, [message.author.id])).has(message.author.id);
+    const inAgents = isInAgents(message.channel, this.deps.agentsCategoryId);
     const decision = decideIngress(
       {
         content: message.content,
         isDm,
         isFromSelf: message.author.id === selfId,
         authorIsBot: message.author.bot,
-        authorIsKnownAiBot: knownAiBotIds.has(message.author.id),
+        // In AGENTS every bot is an AI agent, listed or not.
+        authorIsKnownAiBot: knownAiBotIds.has(message.author.id) || (message.author.bot && inAgents),
         mentionsSelf: message.mentions.users.has(selfId),
         namesSelf: this.namesSelf(message.content),
         softNamesSelf: this.softNamesSelf(message.content),
@@ -174,7 +176,7 @@ export class Pipeline {
         continuesExchange,
       },
       {
-        inAgents: isInAgents(message.channel, this.deps.agentsCategoryId),
+        inAgents,
         paused: settings.value.paused,
         authorOptedOut: optedOut,
         channelListened: settings.isListened(message.channelId, parentIdOf(message)),
