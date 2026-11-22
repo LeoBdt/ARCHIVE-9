@@ -36,7 +36,7 @@ describe.skipIf(!url)("repositories", () => {
 
   it("seeds settings once and saves changes", async () => {
     const first = await loadSettings(db, { listenedChannelIds: ["c1"] });
-    expect(first).toMatchObject({ paused: false, ambientReplies: false, listenedChannelIds: ["c1"] });
+    expect(first).toMatchObject({ paused: false, spontaneity: 1, listenedChannelIds: ["c1"] });
     await saveSetting(db, "paused", true, "1");
     const second = await loadSettings(db, { listenedChannelIds: ["other"] });
     expect(second).toMatchObject({ paused: true, listenedChannelIds: ["c1"] });

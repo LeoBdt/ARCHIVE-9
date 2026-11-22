@@ -60,7 +60,7 @@ export function buildReplyPrompt(input: ReplyInput): string {
   const firstContact = target && !target.introduced;
   const situation = input.addressed
     ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."
-    : `Tu n'as pas été interpellé, mais le tri pense que tu peux intervenir${input.triageReason ? ` (${input.triageReason})` : ""}. Si finalement ce n'est pas pertinent, ne dis rien.`;
+    : `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
 
   return `## Contexte
 ${when}, ${where}.

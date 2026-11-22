@@ -14,6 +14,7 @@ import {
   type Interaction,
   type MessageContextMenuCommandInteraction,
 } from "discord.js";
+import { SPONTANEITY_LEVELS, spontaneity } from "@archive-9/core";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
 
@@ -34,9 +35,15 @@ export const COMMANDS = [
     .addSubcommand((s) => s.setName("ecoute").setDescription("Écouter ou ignorer ce salon"))
     .addSubcommand((s) =>
       s
-        .setName("spontane")
-        .setDescription("Réponses spontanées (sinon, seulement quand on lui parle)")
-        .addBooleanOption((o) => o.setName("actif").setDescription("activer").setRequired(true)),
+        .setName("spontaneite")
+        .setDescription("À quel point il intervient de lui-même quand on ne lui parle pas")
+        .addIntegerOption((o) =>
+          o
+            .setName("niveau")
+            .setDescription("niveau de spontanéité")
+            .setRequired(true)
+            .addChoices(...SPONTANEITY_LEVELS.map((l) => ({ name: `${String(l.level)} · ${l.name}`, value: l.level }))),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -101,17 +108,24 @@ async function config(i: ChatInputCommandInteraction, deps: CommandDeps) {
     await i.reply({ content: listening ? "Ce salon n'est plus archivé." : "J'archive ce salon à partir de maintenant.", flags: ephemeral });
     return;
   }
-  if (sub === "spontane" || sub === "mention-secours") {
+  if (sub === "spontaneite") {
+    const level = spontaneity(i.options.getInteger("niveau", true));
+    await settings.set("spontaneity", level.level, i.user.id);
+    const cap = level.perHour ? ` Au plus ${String(level.perHour)} interventions spontanées par heure et par salon.` : " Je ne parle que quand on me parle.";
+    await i.reply({ content: `Spontanéité : ${String(level.level)} · ${level.name}.${cap}`, flags: ephemeral });
+    return;
+  }
+  if (sub === "mention-secours") {
     const value = i.options.getBoolean("actif", true);
-    await settings.set(sub === "spontane" ? "ambientReplies" : "showFallbackTag", value, i.user.id);
-    await i.reply({ content: `${sub === "spontane" ? "Réponses spontanées" : "Mention du modèle de secours"} : ${onOff(value)}.`, flags: ephemeral });
+    await settings.set("showFallbackTag", value, i.user.id);
+    await i.reply({ content: `Mention du modèle de secours : ${onOff(value)}.`, flags: ephemeral });
     return;
   }
   const s = settings.value;
   await i.reply({
     content: [
       `Pause : ${s.paused ? "oui" : "non"}`,
-      `Réponses spontanées : ${onOff(s.ambientReplies)}`,
+      `Spontanéité : ${String(s.spontaneity)} · ${spontaneity(s.spontaneity).name}`,
       `Mention de secours : ${onOff(s.showFallbackTag)}`,
       `Salons écoutés : ${s.listenedChannelIds.map((id) => `<#${id}>`).join(", ") || "aucun"}`,
     ].join("\n"),

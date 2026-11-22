@@ -47,25 +47,28 @@ Each package exports its `.ts` sources directly. Node runs them through type str
 flowchart TD
   M[messageCreate] --> S[(messages)]
   M --> F{ingress decision}
-  F -->|self, paused, opted out, unlistened, foreign bot,<br/>reply to someone else, emoji only| X[ignored]
+  F -->|self, paused, opted out, unlistened, foreign bot, emoji only| X[ignored]
   F -->|known AI bot| L{loop guard}
   L -->|blocked| X
   L -->|allowed, addressed| R
   L -->|allowed| O
   F -->|mention, name, reply, DM| R
-  F -->|other| O{ambient replies on?}
+  F -->|other| O{spontaneity > 0, active conversation<br/>or weak name?}
   O -->|no| X
   O -->|yes| DB[debounce per channel]
   DB --> T[triage]
-  T -->|reply: false| X
-  T -->|reply: true| R[reply]
+  T -->|addressed| R[reply]
+  T -->|not addressed| B{interest ≥ threshold<br/>and hourly budget left?}
+  B -->|no| X
+  B -->|yes| R
   R --> OUT[send tools]
 ```
 
 - Messages from listened channels (and their threads) are stored, along with edits, deletions and reaction counts. DMs are answered but never stored. Opted-out members are never stored.
-- A message is **addressed** to ARCHIVE-9 when it mentions or names it (aliases are ignored after an apostrophe, so « j'archive » doesn't count), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between. A Discord reply to someone else is never addressed to it.
+- A message is **addressed** to ARCHIVE-9 without AI when it mentions it, contains a strong name (`BOT_ALIASES`, ignored after an apostrophe), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between.
+- A weak name (`BOT_SOFT_ALIASES`, e.g. « archive », also a common verb) sends the message to triage instead.
 - In observer mode, messages still go to triage for 3 minutes after ARCHIVE-9 spoke in the channel.
-- **Triage** gets the last 10 messages and a note computed by the code (when ARCHIVE-9 last spoke, to whom, who wrote since), and returns `{ reply, reason, toolPacks }`, validated with zod. Within a burst, the last human message stays the target even if a bot answers right after.
+- **Triage** gets the last 10 messages and a note computed by the code (whether ARCHIVE-9 is in the conversation, who it answered, who wrote since, who the message replies to, weak name match), and returns `{ addressed, interest, reason, toolPacks }`, validated with zod. `addressed` means the message is for ARCHIVE-9; `interest` (0–10) is the value of an unprompted intervention. Within a burst, the last human message stays the target even if a bot answers right after.
 - Transcripts show who each reply is for (`↪ à Dave`).
 - **Reply** gets the last 20 messages, the participants' profile summaries and relationships, and the current self state, all built by the code. The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
 - The bot loop guard allows at most 3 consecutive replies to bots in a channel without a human, one reply to a bot per 30 s, and 40 per day.
@@ -96,10 +99,21 @@ Each task has an ordered chain of `provider:model`, overridable with `AI_ROUTE_*
 | `/mafiche` | everyone | own profile, ephemeral; offers to opt back in when opted out |
 | `/oublie-moi` | everyone | deletes the member's messages, facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
-| `/config etat \| ecoute \| spontane \| mention-secours` | Manage Server | show settings, toggle the current channel, ambient replies, fallback tag |
+| `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
 | Diagnostic (message menu) | everyone | model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |
 
-Ambient replies are off by default: the bot only speaks when addressed until `/config spontane actif:true`.
+### Spontaneity
+
+Unprompted interventions depend on `/config spontaneite`:
+
+| Level | Interest threshold | Max per channel per hour |
+|---|---|---|
+| 0 · observateur | — | 0 |
+| 1 · discret (default) | 8 | 2 |
+| 2 · normal | 6 | 5 |
+| 3 · bavard | 4 | 12 |
+
+The hourly budget is enforced by the code. Unprompted interventions don't show the typing indicator, since they may end in silence.
 
 ## Data
 

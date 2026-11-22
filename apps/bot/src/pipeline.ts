@@ -10,6 +10,7 @@ import {
   type UsageRecord,
 } from "@archive-9/ai";
 import {
+  AmbientBudget,
   BotLoopGuard,
   KeyedDebouncer,
   createNameMatcher,
@@ -42,6 +43,7 @@ export interface PipelineDeps {
   selfId: string;
   knownAiBotIds: Set<string>;
   aliases: string[];
+  softAliases: string[];
   timezone: string;
 }
 
@@ -86,6 +88,8 @@ function toTranscript(message: Message, selfId: string): TranscriptMessage {
 export class Pipeline {
   private readonly deps: PipelineDeps;
   private readonly namesSelf: (content: string) => boolean;
+  private readonly softNamesSelf: (content: string) => boolean;
+  private readonly ambientBudget = new AmbientBudget();
   private readonly loopGuard = new BotLoopGuard();
   private readonly busyChannels = new Set<string>();
   private readonly pending = new Map<string, Message>();
@@ -95,6 +99,7 @@ export class Pipeline {
   constructor(deps: PipelineDeps) {
     this.deps = deps;
     this.namesSelf = createNameMatcher(deps.aliases);
+    this.softNamesSelf = createNameMatcher(deps.softAliases);
     this.debouncer = new KeyedDebouncer(deps.settings.value.debounceMs, (channelId) => {
       void this.flushBurst(channelId);
     });
@@ -130,15 +135,15 @@ export class Pipeline {
         authorIsKnownAiBot: knownAiBotIds.has(message.author.id),
         mentionsSelf: message.mentions.users.has(selfId),
         namesSelf: this.namesSelf(message.content),
+        softNamesSelf: this.softNamesSelf(message.content),
         repliesToSelf: message.mentions.repliedUser?.id === selfId,
-        repliesToOther: message.mentions.repliedUser !== null && message.mentions.repliedUser.id !== selfId,
         continuesExchange,
       },
       {
         paused: settings.value.paused,
         authorOptedOut: optedOut,
         channelListened: settings.isListened(message.channelId, parentIdOf(message)),
-        ambientReplies: settings.value.ambientReplies,
+        spontaneity: settings.value.spontaneity,
         inActiveConversation: Date.now() - (exchange?.at ?? 0) < ACTIVE_CONVERSATION_MS,
       },
     );
@@ -176,45 +181,73 @@ export class Pipeline {
     try {
       const runId = randomUUID();
       const history = await recentMessages(db, channelId, selfId, TRIAGE_WINDOW);
-      const exchange = this.lastExchange.get(channelId);
-      const active = exchange !== undefined && Date.now() - exchange.at < ACTIVE_CONVERSATION_MS;
       const outcome = await triage(ai, {
         transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300 }),
         channelName: "name" in target.channel ? target.channel.name : null,
-        activeConversation: active,
-        conversationNote: await this.conversationNote(channelId, exchange),
+        conversationNote: await this.conversationNote(target),
       });
 
       const { decision } = outcome;
-      await this.saveUsage(runId, outcome.usage, { detail: decision?.reason ?? null });
+      const detail = decision
+        ? `adressé : ${decision.addressed ? "oui" : "non"} · intérêt ${String(decision.interest)}/10 · ${decision.reason}`
+        : null;
+      await this.saveUsage(runId, outcome.usage, { detail });
       log.debug({ channelId, decision }, "triage");
-      if (!decision?.reply) return;
+      if (!decision) return;
 
-      await this.respond(target, { addressed: false, runId, triageReason: decision.reason, usage: [] });
+      if (decision.addressed) {
+        await this.respond(target, { addressed: true, runId, triageReason: decision.reason, usage: [] });
+        return;
+      }
+      const level = this.deps.settings.value.spontaneity;
+      if (!this.ambientBudget.allows(channelId, level, decision.interest)) return;
+      const spoke = await this.respond(target, {
+        addressed: false,
+        runId,
+        triageReason: `intérêt ${String(decision.interest)}/10 : ${decision.reason}`,
+        usage: [],
+      });
+      if (spoke) this.ambientBudget.record(channelId);
     } catch (error) {
       log.error({ err: error, channelId }, "triage failed");
     }
   }
 
-  private async conversationNote(channelId: string, exchange: Exchange | undefined): Promise<string> {
-    if (exchange) {
+  /** Facts the code knows for sure, so the triage model doesn't have to guess them. */
+  private async conversationNote(target: Message): Promise<string> {
+    const notes: string[] = [];
+    const exchange = this.lastExchange.get(target.channelId);
+    if (exchange && Date.now() - exchange.at < ACTIVE_CONVERSATION_MS) {
       const seconds = Math.round((Date.now() - exchange.at) / 1000);
       const since = exchange.since.length ? ` Depuis, ont écrit : ${exchange.since.join(", ")}.` : "";
-      return `ARCHIVE-9 a parlé il y a ${String(seconds)} s, en répondant à ${exchange.withName}.${since}`;
+      notes.push(`ARCHIVE-9 est dans la conversation : il a parlé il y a ${String(seconds)} s, en répondant à ${exchange.withName}.${since}`);
+    } else {
+      const last = await lastMessageAt(this.deps.db, target.channelId, this.deps.selfId);
+      notes.push(
+        last
+          ? `ARCHIVE-9 n'est pas dans la conversation (dernière intervention ici il y a ${String(Math.round((Date.now() - last.getTime()) / 60_000))} min).`
+          : "ARCHIVE-9 n'a encore jamais parlé dans ce salon.",
+      );
     }
-    const last = await lastMessageAt(this.deps.db, channelId, this.deps.selfId);
-    if (!last) return "ARCHIVE-9 n'a encore jamais parlé dans ce salon.";
-    return `ARCHIVE-9 a parlé ici pour la dernière fois il y a ${String(Math.round((Date.now() - last.getTime()) / 60_000))} min.`;
+    const replied = target.mentions.repliedUser;
+    if (replied && replied.id !== this.deps.selfId) {
+      notes.push(`Le message cible est une réponse Discord à ${replied.globalName ?? replied.username}, pas à ARCHIVE-9.`);
+    }
+    if (this.softNamesSelf(target.content)) {
+      notes.push("Le mot « archive » apparaît dans le message cible : son nom, ou un simple verbe ?");
+    }
+    return notes.join(" ");
   }
 
   private async respond(
     target: Message,
     run: { addressed: boolean; runId: string; triageReason: string | null; usage: UsageRecord[] },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const channel = channelOf(target);
-    if (!channel || this.busyChannels.has(target.channelId)) return;
+    if (!channel || this.busyChannels.has(target.channelId)) return false;
     this.busyChannels.add(target.channelId);
-    const stopTyping = keepTyping(channel);
+    // An unprompted intervention may end in silence, so it doesn't announce itself.
+    const stopTyping = run.addressed ? keepTyping(channel) : () => undefined;
 
     try {
       const { db, ai, selfId, settings, log } = this.deps;
@@ -256,7 +289,7 @@ export class Pipeline {
           send.sentMessageIds.push(sent.id);
         }
         await this.saveUsage(run.runId, outcome.usage, { replyMessageIds: send.sentMessageIds, detail: "offline" });
-        return;
+        return send.sentMessageIds.length > 0;
       }
 
       // Safety net: when addressed, text written outside the tools is still what it meant to say.
@@ -288,8 +321,10 @@ export class Pipeline {
         { channelId: target.channelId, model: outcome.ref.id, fallback: outcome.isFallback, sent: send.sentMessageIds.length },
         send.sentMessageIds.length ? "replied" : "stayed silent",
       );
+      return send.sentMessageIds.length > 0 || send.reacted;
     } catch (error) {
       this.deps.log.error({ err: error, messageId: target.id }, "reply failed");
+      return false;
     } finally {
       stopTyping();
       this.busyChannels.delete(target.channelId);

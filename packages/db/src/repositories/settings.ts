@@ -4,7 +4,8 @@ import { settings } from "../schema.ts";
 
 export interface BotSettings {
   paused: boolean;
-  ambientReplies: boolean;
+  /** 0 observer, 1 discreet, 2 normal, 3 chatty. */
+  spontaneity: number;
   showFallbackTag: boolean;
   listenedChannelIds: string[];
   debounceMs: number;
@@ -12,7 +13,7 @@ export interface BotSettings {
 
 const KEYS = {
   paused: "paused",
-  ambientReplies: "ambient_replies",
+  spontaneity: "spontaneity",
   showFallbackTag: "show_fallback_tag",
   listenedChannelIds: "listened_channel_ids",
   debounceMs: "debounce_ms",
@@ -20,7 +21,7 @@ const KEYS = {
 
 export const DEFAULT_SETTINGS: BotSettings = {
   paused: false,
-  ambientReplies: false,
+  spontaneity: 1,
   showFallbackTag: true,
   listenedChannelIds: [],
   debounceMs: 8_000,

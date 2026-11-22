@@ -64,6 +64,7 @@ discord.once(Events.ClientReady, (client) => {
     selfId: client.user.id,
     knownAiBotIds,
     aliases: env.BOT_ALIASES,
+    softAliases: env.BOT_SOFT_ALIASES,
     timezone: env.BOT_TIMEZONE,
   });
   safely("command registration", async () => {

@@ -12,18 +12,24 @@ const chain = parseRoute("groq:main");
 const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain };
 
 describe("triage", () => {
-  const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "", activeConversation: false };
+  const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "" };
 
   it("returns the validated decision", async () => {
-    const decision = { reply: true, reason: "on lui pose une question", toolPacks: ["discord-messages"] };
+    const decision = { addressed: true, interest: 10, reason: "on lui pose une question", toolPacks: ["discord-messages"] };
     const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
     const outcome = await triage(ai, input);
     expect(outcome.decision).toEqual(decision);
     expect(outcome.ref?.id).toBe("groq:main");
   });
 
+  it("trims an overly long reason instead of failing", async () => {
+    const decision = { addressed: false, interest: 3, reason: "x".repeat(500), toolPacks: [] };
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
+    expect((await triage(ai, input)).decision?.reason).toHaveLength(300);
+  });
+
   it("returns no decision instead of throwing when the output is unusable", async () => {
-    for (const content of [text("pas du json"), text(JSON.stringify({ reply: "maybe" })), []]) {
+    for (const content of [text("pas du json"), text(JSON.stringify({ addressed: "maybe" })), []]) {
       const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(content)) }));
       const outcome = await triage(ai, input);
       expect(outcome.decision).toBeNull();
@@ -31,11 +37,11 @@ describe("triage", () => {
     }
   });
 
-  it("states the case and puts the transcript in the data zone", () => {
-    const prompt = buildTriagePrompt({ transcript: "LIGNE", channelName: "jeux", activeConversation: true, conversationNote: "Il a parlé il y a 12 s." });
-    expect(prompt).toContain("Cas 1. Il a parlé il y a 12 s.");
+  it("puts the computed note first and the transcript in the data zone", () => {
+    const prompt = buildTriagePrompt({ transcript: "LIGNE", channelName: "jeux", conversationNote: "Il a parlé il y a 12 s." });
+    expect(prompt).toContain("Salon : jeux. Il a parlé il y a 12 s.");
     expect(prompt).toMatch(/<donnees>\nLIGNE\n<\/donnees>/);
-    expect(buildTriagePrompt({ transcript: "", channelName: null, activeConversation: false, conversationNote: "" })).toContain("Cas 2");
+    expect(buildTriagePrompt({ transcript: "", channelName: null, conversationNote: "" })).toContain("inconnu");
   });
 });
 
@@ -74,6 +80,7 @@ describe("buildReplyPrompt", () => {
     expect(prompt).toContain("affinité 40/100, confiance 70/100, ressenti : complice");
     expect(prompt).toContain("Fiche : aime le café");
     expect(prompt).toContain("(question au groupe)");
+    expect(prompt).toContain("tu interviens de toi-même");
     expect(prompt).toContain("message privé");
     expect(prompt).toContain("Blagues récurrentes : Tom et ses retards");
   });

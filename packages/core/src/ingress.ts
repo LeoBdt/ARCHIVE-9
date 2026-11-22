@@ -7,32 +7,26 @@ export interface IncomingMessage {
   authorIsBot: boolean;
   authorIsKnownAiBot: boolean;
   mentionsSelf: boolean;
+  /** A strong name such as "ARCHIVE-9" appears in the message. */
   namesSelf: boolean;
+  /** A weak name such as "archive", which is also a common word, appears in the message. */
+  softNamesSelf: boolean;
   repliesToSelf: boolean;
   /** Same person ARCHIVE-9 just answered, with nobody else speaking in between. */
   continuesExchange: boolean;
-  /** Discord reply to someone other than ARCHIVE-9. */
-  repliesToOther: boolean;
 }
 
 export interface IngressContext {
   paused: boolean;
   authorOptedOut: boolean;
   channelListened: boolean;
-  ambientReplies: boolean;
+  /** 0 means ARCHIVE-9 never speaks unprompted. */
+  spontaneity: number;
   /** ARCHIVE-9 spoke in this channel moments ago, so a follow-up may be meant for it. */
   inActiveConversation: boolean;
 }
 
-export type IgnoreReason =
-  | "self"
-  | "paused"
-  | "opted_out"
-  | "not_listened"
-  | "foreign_bot"
-  | "trivial"
-  | "addressed_elsewhere"
-  | "observer_mode";
+export type IgnoreReason = "self" | "paused" | "opted_out" | "not_listened" | "foreign_bot" | "trivial" | "observer_mode";
 
 export type IngressDecision =
   | { action: "ignore"; reason: IgnoreReason }
@@ -51,8 +45,9 @@ export function decideIngress(msg: IncomingMessage, ctx: IngressContext): Ingres
   const addressed = msg.isDm || msg.mentionsSelf || msg.namesSelf || msg.repliesToSelf || msg.continuesExchange;
   if (addressed) return { action: "reply", fromBot };
 
-  if (msg.repliesToOther) return { action: "ignore", reason: "addressed_elsewhere" };
   if (isTrivialContent(msg.content)) return { action: "ignore", reason: "trivial" };
-  if (!ctx.ambientReplies && !ctx.inActiveConversation) return { action: "ignore", reason: "observer_mode" };
+  if (ctx.spontaneity === 0 && !ctx.inActiveConversation && !msg.softNamesSelf) {
+    return { action: "ignore", reason: "observer_mode" };
+  }
   return { action: "triage", fromBot };
 }
