@@ -2,6 +2,7 @@ export * from "./client.ts";
 export * from "./migrate.ts";
 export * from "./repositories/actions.ts";
 export * from "./repositories/ai-usage.ts";
+export * from "./repositories/feedback.ts";
 export * from "./repositories/learning.ts";
 export * from "./repositories/members.ts";
 export * from "./repositories/messages.ts";

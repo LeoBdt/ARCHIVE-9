@@ -64,7 +64,16 @@ describe("applySelfStateChange", () => {
       runningJokes: { add: ["le serveur qui rame"], remove: [] },
       notes: "aujourd'hui",
     });
-    expect(next).toEqual({ mood: "agacé", opinions: ["b", "d", "e"], runningJokes: ["le serveur qui rame"], notes: "aujourd'hui" });
+    expect(next).toEqual({ mood: "agacé", opinions: ["b", "d", "e"], runningJokes: ["le serveur qui rame"], notes: "aujourd'hui", resolutions: [] });
+  });
+
+  it("keeps at most 8 resolutions, even from a state that had none", () => {
+    const seven = { ...current, resolutions: Array.from({ length: 7 }, (_, i) => `r${String(i)}`) };
+    const change = { mood: "", opinions: { add: [], remove: [] }, runningJokes: { add: [], remove: [] }, notes: "" };
+    const next = applySelfStateChange(seven, { ...change, resolutions: { add: ["piquer moins", "écouter avant de vanner"], remove: [] } });
+    expect(next.resolutions).toHaveLength(8);
+    expect(next.resolutions?.at(-1)).toBe("écouter avant de vanner");
+    expect(applySelfStateChange(current, change).resolutions).toEqual([]);
   });
 
   it("keeps the current mood and notes when empty, and drops the oldest entries when full", () => {
@@ -72,7 +81,7 @@ describe("applySelfStateChange", () => {
     const next = applySelfStateChange(
       full,
       { mood: "", opinions: { add: ["new"], remove: [] }, runningJokes: { add: [], remove: [] }, notes: "" },
-      { changesPerList: 2, maxItems: 10, maxItemLength: 160, maxMoodLength: 120, maxNotesLength: 600 },
+      { changesPerList: 2, maxItems: 10, maxItemLength: 160, maxMoodLength: 120, maxNotesLength: 600, maxResolutions: 8 },
     );
     expect(next.mood).toBe("calme");
     expect(next.notes).toBe("hier");

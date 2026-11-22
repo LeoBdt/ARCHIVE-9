@@ -29,6 +29,8 @@ import {
   memberContexts,
   memberDirectory,
   optedOutIds,
+  pendingFeedback,
+  preferencesFor,
   recentMessages,
   recentWithMember,
   recordAiUsage,
@@ -335,6 +337,8 @@ export class Pipeline {
           elsewhere,
           server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
+          // Until the evening reflection has weighed it, recent feedback is shown as is.
+          feedback: (await pendingFeedback(db)).slice(-8),
           skills: skills.map((k) => ({
             ...k,
             until: k.expiresAt?.toLocaleTimeString("fr-FR", { timeZone: this.deps.timezone, hour: "2-digit", minute: "2-digit" }) ?? null,
@@ -484,7 +488,7 @@ export class Pipeline {
       people.set(id, { name: member.name, isBot: member.isBot });
       added += 1;
     }
-    const contexts = await memberContexts(this.deps.db, [...people.keys()]);
+    const [contexts, preferences] = await Promise.all([memberContexts(this.deps.db, [...people.keys()]), preferencesFor(this.deps.db, [...people.keys()])]);
     return [...people].map(([id, info]) => {
       const ctx = contexts.get(id);
       return {
@@ -496,6 +500,7 @@ export class Pipeline {
         trust: ctx?.trust ?? null,
         feeling: ctx?.feeling ?? null,
         introduced: ctx?.introduced ?? false,
+        preferences: preferences.get(id) ?? [],
       };
     });
   }

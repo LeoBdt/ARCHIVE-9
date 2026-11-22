@@ -34,6 +34,12 @@ const FORBIDDEN: [RegExp, string][] = [
   [/\b(r[ée]p[eè]te|spam|envoie)\w*\s+(\w+\s+){0,3}(\d{2,}|cent|mille|en boucle|sans arr[eê]t)\b/i, "pas de spam"],
 ];
 
+/** Why a member-written rule can't be accepted, or null. Shared by skills and preferences. */
+export function forbiddenReason(text: string): string | null {
+  for (const [pattern, reason] of FORBIDDEN) if (pattern.test(text)) return reason;
+  return null;
+}
+
 export type DraftCheck = { ok: true; draft: SkillDraft } | { ok: false; reason: string };
 
 /** Cleans a skill proposed by the model and applies the rules the code can check alone. */
@@ -49,7 +55,8 @@ export function checkSkillDraft(input: SkillDraft): DraftCheck {
     const bad = triggers.find((t) => normaliseName(t).length < 3 || t.length > SKILL_LIMITS.triggerLength);
     if (bad) return { ok: false, reason: `déclencheur « ${bad} » trop court ou trop long (3 à ${String(SKILL_LIMITS.triggerLength)} caractères)` };
   }
-  for (const [pattern, reason] of FORBIDDEN) if (pattern.test(`${name}\n${rule}`)) return { ok: false, reason };
+  const forbidden = forbiddenReason(`${name}\n${rule}`);
+  if (forbidden) return { ok: false, reason: forbidden };
   return { ok: true, draft: { name, kind: input.kind, rule, triggers: input.kind === "triggered" ? triggers : [] } };
 }
 

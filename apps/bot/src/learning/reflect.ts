@@ -5,7 +5,9 @@ import {
   applyAnalysis,
   currentSelfState,
   factsSince,
+  markFeedbackReviewed,
   memberNames,
+  pendingFeedback,
   messagesSince,
   notify,
   recordAiUsage,
@@ -57,11 +59,12 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     return false;
   }
 
-  const [server, state, learned, changes] = await Promise.all([
+  const [server, state, learned, changes, feedback] = await Promise.all([
     loadServerContext(db, deps.server),
     currentSelfState(db, INITIAL_SELF_STATE),
     factsSince(db, since, config.facts),
     mode === "evening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
+    mode === "evening" ? pendingFeedback(db) : Promise.resolve([]),
   ]);
   const picked = pickConversations(messages, config.maxMessages, mode);
   const people = new Set(picked.flat().flatMap((m) => [m.authorId, ...m.mentionedIds]));
@@ -78,6 +81,7 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     })),
     learned: learned.map((f) => ({ name: f.memberName, nature: f.nature, content: f.content })),
     relationshipChanges: changes.map((r) => ({ name: r.memberName, affinityDelta: r.affinityDelta, trustDelta: r.trustDelta, reason: r.reason })),
+    feedback: feedback.map((f) => ({ name: f.authorName, trust: f.trust, content: f.content })),
   });
   const runId = randomUUID();
   await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId, detail: mode })));
@@ -99,6 +103,8 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
   if (keepSelfState) return true;
   const next = applySelfStateChange(state, outcome.change, config.limits);
   const version = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);
+  // Weighed tonight: from now on they live on as resolutions, not as raw feedback.
+  await markFeedbackReviewed(db, feedback.map((f) => f.id));
   await notify(db, { type: "self_state", version });
   log.info({ mode, version, mood: next.mood }, "reflection saved");
   return true;
