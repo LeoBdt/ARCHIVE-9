@@ -29,7 +29,6 @@ export function Access({ refused = false }: { refused?: boolean }) {
             Se connecter avec Discord
           </button>
         )}
-        <p style={{ fontSize: 12, color: "var(--faint)" }}>Je ne lis que ton identifiant Discord. Pas ton e-mail, pas tes serveurs.</p>
       </div>
     </main>
   );
