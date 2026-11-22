@@ -66,6 +66,7 @@ describe.skipIf(!url)("repositories", () => {
       ["m2", "yo", true],
     ]);
     expect(recent[0]?.authorName).toBe("Tomtom");
+    expect(recent[1]).toMatchObject({ replyToAuthorName: "Tomtom", replyToIsSelf: false });
     expect(await lastMessageAt(db, "c1", SELF)).toEqual(at(1));
     expect(await lastMessageAt(db, "c2", SELF)).toBeNull();
   });

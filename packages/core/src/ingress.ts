@@ -11,6 +11,8 @@ export interface IncomingMessage {
   repliesToSelf: boolean;
   /** Same person ARCHIVE-9 just answered, with nobody else speaking in between. */
   continuesExchange: boolean;
+  /** Discord reply to someone other than ARCHIVE-9. */
+  repliesToOther: boolean;
 }
 
 export interface IngressContext {
@@ -29,6 +31,7 @@ export type IgnoreReason =
   | "not_listened"
   | "foreign_bot"
   | "trivial"
+  | "addressed_elsewhere"
   | "observer_mode";
 
 export type IngressDecision =
@@ -48,6 +51,7 @@ export function decideIngress(msg: IncomingMessage, ctx: IngressContext): Ingres
   const addressed = msg.isDm || msg.mentionsSelf || msg.namesSelf || msg.repliesToSelf || msg.continuesExchange;
   if (addressed) return { action: "reply", fromBot };
 
+  if (msg.repliesToOther) return { action: "ignore", reason: "addressed_elsewhere" };
   if (isTrivialContent(msg.content)) return { action: "ignore", reason: "trivial" };
   if (!ctx.ambientReplies && !ctx.inActiveConversation) return { action: "ignore", reason: "observer_mode" };
   return { action: "triage", fromBot };

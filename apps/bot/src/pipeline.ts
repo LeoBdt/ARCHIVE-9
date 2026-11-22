@@ -76,6 +76,8 @@ function toTranscript(message: Message, selfId: string): TranscriptMessage {
     isSelf: message.author.id === selfId,
     content: message.content,
     replyToId: message.reference?.messageId ?? null,
+    replyToAuthorName: message.mentions.repliedUser?.globalName ?? message.mentions.repliedUser?.username ?? null,
+    replyToIsSelf: message.mentions.repliedUser?.id === selfId,
     createdAt: message.createdAt,
   };
 }
@@ -129,6 +131,7 @@ export class Pipeline {
         mentionsSelf: message.mentions.users.has(selfId),
         namesSelf: this.namesSelf(message.content),
         repliesToSelf: message.mentions.repliedUser?.id === selfId,
+        repliesToOther: message.mentions.repliedUser !== null && message.mentions.repliedUser.id !== selfId,
         continuesExchange,
       },
       {
@@ -157,7 +160,9 @@ export class Pipeline {
       await this.respond(message, { addressed: true, runId: randomUUID(), triageReason: null, usage: [] });
       return;
     }
-    this.pending.set(message.channelId, message);
+    // Within a burst, a bot answering right after a human must not take the human's place.
+    const queued = this.pending.get(message.channelId);
+    if (!(message.author.bot && queued && !queued.author.bot)) this.pending.set(message.channelId, message);
     this.debouncer.schedule(message.channelId);
   }
 

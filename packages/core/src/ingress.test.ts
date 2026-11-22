@@ -11,6 +11,7 @@ const msg = (over: Partial<IncomingMessage> = {}): IncomingMessage => ({
   namesSelf: false,
   repliesToSelf: false,
   continuesExchange: false,
+  repliesToOther: false,
   ...over,
 });
 
@@ -31,6 +32,7 @@ describe("decideIngress", () => {
     ["not_listened", msg({ mentionsSelf: true }), ctx({ channelListened: false })],
     ["foreign_bot", msg({ authorIsBot: true, mentionsSelf: true }), ctx()],
     ["trivial", msg({ content: "😂😂" }), ctx()],
+    ["addressed_elsewhere", msg({ repliesToOther: true }), ctx({ inActiveConversation: true })],
     ["observer_mode", msg(), ctx({ ambientReplies: false })],
   ] as const)("ignores: %s", (reason, m, c) => {
     expect(decideIngress(m, c)).toEqual({ action: "ignore", reason });
@@ -42,6 +44,7 @@ describe("decideIngress", () => {
     ["reply", msg({ repliesToSelf: true })],
     ["DM", msg({ isDm: true })],
     ["direct follow-up", msg({ continuesExchange: true, content: "je suis ému" })],
+    ["reply to someone else that names it", msg({ repliesToOther: true, namesSelf: true })],
     ["mention with emoji only", msg({ mentionsSelf: true, content: "<@1> 👋" })],
   ])("always replies when addressed: %s", (_label, m) => {
     expect(decideIngress(m, ctx({ ambientReplies: false }))).toEqual({ action: "reply", fromBot: false });

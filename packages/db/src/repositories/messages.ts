@@ -1,5 +1,6 @@
 import type { MessageReactions, TranscriptMessage } from "@archive-9/core";
 import { and, desc, eq, inArray, max } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client.ts";
 import { members, messages } from "../schema.ts";
 
@@ -37,6 +38,8 @@ export async function recentMessages(
   selfId: string,
   limit: number,
 ): Promise<TranscriptMessage[]> {
+  const replied = alias(messages, "replied");
+  const repliedAuthor = alias(members, "replied_author");
   const rows = await db
     .select({
       id: messages.id,
@@ -46,10 +49,15 @@ export async function recentMessages(
       isBot: members.isBot,
       content: messages.content,
       replyToId: messages.replyToId,
+      replyToAuthorId: replied.authorId,
+      replyToUsername: repliedAuthor.username,
+      replyToDisplayName: repliedAuthor.displayName,
       createdAt: messages.createdAt,
     })
     .from(messages)
     .innerJoin(members, eq(members.id, messages.authorId))
+    .leftJoin(replied, eq(replied.id, messages.replyToId))
+    .leftJoin(repliedAuthor, eq(repliedAuthor.id, replied.authorId))
     .where(eq(messages.channelId, channelId))
     .orderBy(desc(messages.createdAt))
     .limit(limit);
@@ -62,6 +70,8 @@ export async function recentMessages(
     isSelf: row.authorId === selfId,
     content: row.content,
     replyToId: row.replyToId,
+    replyToAuthorName: row.replyToDisplayName ?? row.replyToUsername,
+    replyToIsSelf: row.replyToAuthorId === selfId,
     createdAt: row.createdAt,
   }));
 }

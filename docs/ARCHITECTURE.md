@@ -47,7 +47,7 @@ Each package exports its `.ts` sources directly. Node runs them through type str
 flowchart TD
   M[messageCreate] --> S[(messages)]
   M --> F{ingress decision}
-  F -->|self, paused, opted out, unlistened, foreign bot, emoji only| X[ignored]
+  F -->|self, paused, opted out, unlistened, foreign bot,<br/>reply to someone else, emoji only| X[ignored]
   F -->|known AI bot| L{loop guard}
   L -->|blocked| X
   L -->|allowed, addressed| R
@@ -63,7 +63,10 @@ flowchart TD
 ```
 
 - Messages from listened channels (and their threads) are stored, along with edits, deletions and reaction counts. DMs are answered but never stored. Opted-out members are never stored.
-- **Triage** gets the last 10 messages and returns `{ reply, reason, toolPacks }`, validated with zod.
+- A message is **addressed** to ARCHIVE-9 when it mentions or names it (aliases are ignored after an apostrophe, so « j'archive » doesn't count), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between. A Discord reply to someone else is never addressed to it.
+- In observer mode, messages still go to triage for 3 minutes after ARCHIVE-9 spoke in the channel.
+- **Triage** gets the last 10 messages and a note computed by the code (when ARCHIVE-9 last spoke, to whom, who wrote since), and returns `{ reply, reason, toolPacks }`, validated with zod. Within a burst, the last human message stays the target even if a bot answers right after.
+- Transcripts show who each reply is for (`↪ à Dave`).
 - **Reply** gets the last 20 messages, the participants' profile summaries and relationships, and the current self state, all built by the code. The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
 - The bot loop guard allows at most 3 consecutive replies to bots in a channel without a human, one reply to a bot per 30 s, and 40 per day.
 - While the reply is being generated, the typing indicator is shown.

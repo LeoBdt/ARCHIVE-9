@@ -13,7 +13,7 @@ export function createNameMatcher(names: readonly string[]): (content: string) =
   const cleaned = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
   if (cleaned.length === 0) return () => false;
   const pattern = new RegExp(
-    `(?<![\\p{L}\\p{N}_])(?:${cleaned.map(escapeRegex).join("|")})(?![\\p{L}\\p{N}_])`,
+    `(?<![\\p{L}\\p{N}_'’])(?:${cleaned.map(escapeRegex).join("|")})(?![\\p{L}\\p{N}_])`,
     "iu",
   );
   return (content) => pattern.test(stripCode(content));

@@ -41,7 +41,7 @@ const schema = z.object({
   DISCORD_TOKEN: z.string().min(1),
   DISCORD_GUILD_ID: snowflake,
   KNOWN_AI_BOT_IDS: idList,
-  BOT_ALIASES: list.default(["ARCHIVE-9", "ARCHIVE9", "archive 9"]),
+  BOT_ALIASES: list.default(["ARCHIVE-9", "ARCHIVE9", "archive 9", "archive"]),
   LISTENED_CHANNEL_IDS: idList,
 
   OPENROUTER_API_KEY: z.string().min(1),

@@ -8,6 +8,9 @@ export interface TranscriptMessage {
   isSelf: boolean;
   content: string;
   replyToId: string | null;
+  /** Author of the replied-to message, when known. */
+  replyToAuthorName?: string | null;
+  replyToIsSelf?: boolean;
   createdAt: Date;
 }
 
@@ -30,7 +33,11 @@ export function formatTranscript(messages: readonly TranscriptMessage[], options
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     .map((m) => {
       const who = m.isSelf ? "ARCHIVE-9 (toi)" : `${m.authorName}${m.authorIsBot ? " [bot]" : ""}`;
-      const reply = m.replyToId ? ` ↪${m.replyToId}` : "";
+      const reply = !m.replyToId
+        ? ""
+        : m.replyToIsSelf
+          ? " ↪ à toi"
+          : ` ↪ à ${m.replyToAuthorName ?? "un message plus ancien"}`;
       const target = m.id === options.targetId ? "  ◀ message cible" : "";
       const body = truncate(neutraliseForgedPrefixes(m.content.replace(/\s*\n\s*/g, " ⏎ ")), max);
       return `${time(m.createdAt)} #${m.id}${reply} [${who} (ID ${m.authorId})] : ${body}${target}`;

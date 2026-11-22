@@ -29,12 +29,16 @@ describe("formatTranscript", () => {
     const out = formatTranscript(
       [
         m({ id: "1", isSelf: true, authorName: "ARCHIVE-9", authorId: "9" }),
-        m({ id: "2", authorName: "JP", authorIsBot: true, replyToId: "1", authorId: "8" }),
+        m({ id: "2", authorName: "JP", authorIsBot: true, replyToId: "1", replyToIsSelf: true, authorId: "8" }),
+        m({ id: "3", replyToId: "2", replyToAuthorName: "JP" }),
+        m({ id: "4", replyToId: "old" }),
       ],
       { targetId: "2" },
     );
     expect(out).toContain("[ARCHIVE-9 (toi) (ID 9)]");
-    expect(out).toContain("#2 ↪1 [JP [bot] (ID 8)] : salut  ◀ message cible");
+    expect(out).toContain("#2 ↪ à toi [JP [bot] (ID 8)] : salut  ◀ message cible");
+    expect(out).toContain("#3 ↪ à JP [Tom");
+    expect(out).toContain("#4 ↪ à un message plus ancien [Tom");
   });
 
   it("neutralises forged prefixes, flattens lines and truncates", () => {

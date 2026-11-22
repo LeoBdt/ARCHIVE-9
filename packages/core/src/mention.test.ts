@@ -11,7 +11,8 @@ describe("createNameMatcher", () => {
   });
 
   it("ignores names inside other words", () => {
-    expect(matches("j'archive mes photos")).toBe(true);
+    expect(matches("j'archive mes photos")).toBe(false);
+    expect(matches("l’archive du serveur")).toBe(false);
     expect(matches("archives du serveur")).toBe(false);
     expect(matches("ma9ique")).toBe(false);
   });
