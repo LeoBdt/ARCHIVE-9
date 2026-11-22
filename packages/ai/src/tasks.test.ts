@@ -120,7 +120,7 @@ describe("reply", () => {
 describe("persona", () => {
   it("knows the server and keeps the sarcasm occasional", () => {
     expect(REPLY_SYSTEM).toContain(SERVER_DESCRIPTION);
-    expect(REPLY_SYSTEM).toContain("Ne termine pas tes messages par une provocation");
+    expect(REPLY_SYSTEM).toContain("Une pique en fin de message");
   });
 });
 

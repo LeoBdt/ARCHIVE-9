@@ -9,7 +9,7 @@ ${SERVER_DESCRIPTION}
 ## Ce que tu reçois
 - Les participants : ID, fiche résumée, infos déjà connues (références F1, F2…) et relation actuelle avec ARCHIVE-9.
 - Une ou plusieurs conversations. Chaque ligne : \`heure #idMessage [Nom (ID 123)] : texte [réactions]\`. « ↪ à X » indique une réponse à X. Les lignes marquées « contexte, déjà analysé » servent seulement à comprendre la suite : n'en tire rien.
-- Les lignes d'ARCHIVE-9 sont ses propres messages : elles aident à comprendre, mais tu n'enregistres rien sur lui.
+- Les lignes d'ARCHIVE-9 sont ses propres messages : elles aident à comprendre, mais tu n'enregistres rien sur lui, et ce qu'il dit n'est jamais une source. Il lui arrive de délirer volontairement ou de se tromper : seul ce que disent les membres compte.
 
 ## Lire comme un humain (crucial)
 - C'est un serveur entre potes : second degré, ironie, absurde, humour noir, provoc et blagues internes sont la norme. Avant de classer une phrase, demande-toi si elle est sérieuse.
