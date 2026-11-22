@@ -362,3 +362,37 @@ export const siteAdmins = pgTable("site_admins", {
   grantedBy: text().notNull(),
   createdAt: createdAt(),
 });
+
+export interface DecisionDetails {
+  /** What it had in mind: relation with the author, skills, preferences, resolutions… */
+  context?: string[];
+  reasoning?: string | null;
+  steps?: { tool: string; summary: string }[];
+  /** What it sent, joined. */
+  sent?: string | null;
+}
+
+/** Every message ARCHIVE-9 looked at, and what it decided. Kept 14 days. Feeds the journal and the backstage page. */
+export const decisions = pgTable(
+  "decisions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    runId: uuid(),
+    messageId: text().notNull(),
+    channelId: text().notNull(),
+    channelName: text(),
+    guildId: text(),
+    authorId: text().notNull(),
+    /** ignored, silent, replied, reacted or offline. */
+    outcome: text().notNull(),
+    reason: text(),
+    addressed: boolean().notNull().default(false),
+    inAgents: boolean().notNull().default(false),
+    interest: smallint(),
+    /** The message it reacted to, cut short. Empty for ignored ones. */
+    content: text(),
+    details: jsonb().$type<DecisionDetails>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.createdAt), index().on(t.outcome, t.createdAt)],
+);

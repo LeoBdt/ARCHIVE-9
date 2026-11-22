@@ -10,6 +10,7 @@ const LINKS = [
   { to: "/memoire", label: "Mémoire" },
   { to: "/skills", label: "Skills" },
   { to: "/journal", label: "Journal" },
+  { to: "/coulisses", label: "Coulisses" },
 ];
 
 function SearchBox({ className, id }: { className: string; id: string }) {
@@ -48,7 +49,7 @@ function SearchBox({ className, id }: { className: string; id: string }) {
 
 export function Header({ viewer }: { viewer: Viewer }) {
   const [open, setOpen] = useState(false);
-  const links = viewer.isAdmin ? [...LINKS, { to: "/coulisses", label: "Coulisses · admin" }] : LINKS;
+  const links = viewer.isAdmin ? [...LINKS, { to: "/reglages", label: "Réglages · admin" }] : LINKS;
   return (
     <>
       <header className="top">
@@ -57,24 +58,26 @@ export function Header({ viewer }: { viewer: Viewer }) {
         </NavLink>
         <nav aria-label="Navigation principale" className="nav">
           {links.map((link) => (
-            <NavLink key={link.to} to={link.to} end={link.to === "/"} className={link.to === "/coulisses" ? "admin" : undefined}>
+            <NavLink key={link.to} to={link.to} end={link.to === "/"} className={link.to === "/reglages" ? "admin" : undefined}>
               {link.label}
             </NavLink>
           ))}
         </nav>
         <SearchBox className="search-desktop" id="search" />
-        <button
-          type="button"
-          className="me px-dim"
-          title="Se déconnecter"
-          onClick={() => {
-            void signOut();
-          }}
-        >
+        <NavLink to={`/archives/${viewer.id}`} className="me px-dim" title="Ton dossier">
           <span className="avatar" style={{ width: 28, height: 28, background: avatarColor(viewer.id), fontSize: 12 }}>
             {initials(viewer.name)}
           </span>
           {viewer.name}
+        </NavLink>
+        <button
+          type="button"
+          className="signout"
+          onClick={() => {
+            void signOut();
+          }}
+        >
+          Sortir
         </button>
         <button
           type="button"
@@ -119,6 +122,7 @@ export function Header({ viewer }: { viewer: Viewer }) {
               {link.label}
             </NavLink>
           ))}
+          <NavLink to={`/archives/${viewer.id}`}>Mon dossier</NavLink>
           <a
             href="/acces"
             onClick={(event) => {

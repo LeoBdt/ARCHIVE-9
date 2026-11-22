@@ -4,6 +4,8 @@ import type { SqlClient } from "./client.ts";
 export const WEB_DB_ROLE = "archive9_web";
 
 const WRITABLE = ["web_user", "web_session", "web_account", "web_verification", "site_admins"];
+/** What the site changes for members and admins: their own facts, the settings, a rollback of the self state. */
+const APPENDABLE = ["profile_facts", "fact_corrections", "settings", "self_state_versions"];
 
 /**
  * Creates or updates the site's user. Run by the bot after its migrations, so new tables
@@ -20,4 +22,6 @@ export async function ensureWebRole(sql: SqlClient, password: string): Promise<v
   await sql.unsafe(`grant usage on schema public to ${WEB_DB_ROLE}`);
   await sql.unsafe(`grant select on all tables in schema public to ${WEB_DB_ROLE}`);
   await sql.unsafe(`grant insert, update, delete on ${WRITABLE.join(", ")} to ${WEB_DB_ROLE}`);
+  await sql.unsafe(`grant insert, update on ${APPENDABLE.join(", ")} to ${WEB_DB_ROLE}`);
+  await sql.unsafe(`grant usage on all sequences in schema public to ${WEB_DB_ROLE}`);
 }

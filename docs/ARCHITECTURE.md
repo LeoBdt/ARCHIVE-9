@@ -216,7 +216,10 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 - **Not indexed**: `robots.txt` disallows everything except the home page and its preview image for `Discordbot`; every response has `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`, and the page has the matching `meta robots`.
 - **Link preview**: Open Graph tags built from `SITE_URL` when the page is served, with a 1200×630 card. The card, favicon and touch icon are drawn from the sprite by `apps/web/scripts/icons.ts`.
 - **Network**: no published port. The `tunnel` service (`cloudflared`, pinned version) reaches `web:3000`; the Cloudflare public hostname points there.
-- **Pages so far**: login (« Accès au noyau »), a start-up sequence played once per session, and the home page (sprite, status, version, mood, counters, most consulted profiles, latest events, skills), refreshed every 30 s. Other sections show a placeholder.
+- **Pages**: login, a start-up sequence once per session, home (Noyau), Archives (search on current and former names), a profile per member (facts in drawers by category, 9 cards at a time, the owner, or an admin, can correct or remove a card; an admin's reason is marked `[admin Name]`), Relations (drawers by closeness), Mémoire (self state, resolutions, pending feedback, history; admins can roll back to a version), Skills, Journal (each reply with its trigger, context, reasoning, steps and cost; actions; what it learned) and Coulisses (triage of everything it didn't answer, costs, ignored messages, errors). Réglages is the only admin page: pause, spontaneity, listened channels, fallback tag, and who is admin (owner only). Pages update live: Postgres triggers on the tables the site shows send `pg_notify('archive9', {type})`, the site keeps one `LISTEN` connection and pushes the change type to open pages over Server-Sent Events (`/api/live`, members only, a ping every 25 s for the tunnel); pages refetch what changed. Only the kind of change travels, never content. Polling every 30 s stays as a fallback.
+- **Voice**: ARCHIVE-9 speaks in the first person on public pages; buttons talk to the reader; the settings page talks about it in the third person.
+- **Decisions**: the bot stores what it decided about every message it sees (`decisions`, 14 days): ignored with the reason, silent with the triage interest, or answered with its context, reasoning, tool steps and what it sent. A DM reply shows only to its member and admins; DMs stay anonymous in Coulisses.
+- **Writes from the site**: same-origin only; settings saved there reach the bot within 30 s. The site's database user can also insert and update facts, corrections, settings and self state versions.
 
 ## Commands
 
@@ -269,6 +272,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `settings` | settings editable at runtime, plus the running version and status lines |
 | `web_user`, `web_session`, `web_account`, `web_verification` | site logins (Better Auth), without email or OAuth tokens |
 | `site_admins` | site admins named by the owner |
+| `decisions` | what ARCHIVE-9 decided about each message it saw, with the why of each reply; kept 14 days |
 
 Deleting a member cascades to their messages, facts, summary and relationship.
 

@@ -125,10 +125,27 @@ async function registerCommands(guild: Guild) {
   await ensureServerProfile(db, guild.id, guild.name);
   await guild.commands.set(COMMANDS);
   log.info({ count: COMMANDS.length }, "commands registered");
+  await publishChannels(guild);
   const all = await guild.members.fetch();
   await syncGuildMembers(db, [...all.values()].map((m) => memberInput(m)));
   log.info({ count: all.size }, "guild members synced");
 }
+
+/** The site names channels from this list; it has no access to Discord. */
+async function publishChannels(guild: Guild) {
+  const channels = await guild.channels.fetch();
+  const list = [...channels.values()]
+    .filter((c) => c?.isTextBased() && !c.isThread())
+    .map((c) => ({ id: c?.id ?? "", name: c?.name ?? "", category: c?.parent?.name ?? null }));
+  await settings.set("channelDirectory", list, null);
+}
+
+// Settings changed from the site reach the running bot within 30 seconds.
+setInterval(() => {
+  void settings.reload().then(() => {
+    presence.show();
+  });
+}, 30_000);
 
 function memberInput(m: GuildMember | PartialGuildMember): MemberInput {
   return { id: m.id, username: m.user.username, displayName: m.displayName, isBot: m.user.bot, isKnownAiBot: knownAiBotIds.has(m.id) };

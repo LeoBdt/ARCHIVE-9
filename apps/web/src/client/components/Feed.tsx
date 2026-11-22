@@ -1,7 +1,8 @@
+import { Link } from "react-router";
 import type { Home } from "../api.ts";
 import { clock, FEED_KINDS } from "../format.ts";
 
-export function Feed({ items, timeZone }: { items: Home["feed"]; timeZone: string }) {
+export function Feed({ items, timeZone, journalLink = true }: { items: Home["feed"]; timeZone: string; journalLink?: boolean }) {
   return (
     <section aria-labelledby="live" className="live px-dim">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -28,6 +29,11 @@ export function Feed({ items, timeZone }: { items: Home["feed"]; timeZone: strin
             );
           })}
         </ol>
+      )}
+      {journalLink && (
+        <Link to="/journal" style={{ fontSize: 13 }}>
+          Tout le journal →
+        </Link>
       )}
     </section>
   );

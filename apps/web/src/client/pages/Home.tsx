@@ -34,8 +34,8 @@ export function Home({ viewer }: { viewer: Viewer }) {
   const feed = data.version
     ? [...data.feed, { at: data.version.startedAt, kind: "system" as const, text: `Je renais sous le nom ${data.version.label.split(" ")[0] ?? ""}.` }]
         .sort((a, b) => b.at.localeCompare(a.at))
-        .slice(0, 12)
-    : data.feed;
+        .slice(0, 5)
+    : data.feed.slice(0, 5);
   const version = data.version
     ? `VERSION ${data.version.label.toUpperCase()} · EN LIGNE DEPUIS ${clock(data.version.startedAt, TIME_ZONE)}`
     : "VERSION INCONNUE";
@@ -44,7 +44,7 @@ export function Home({ viewer }: { viewer: Viewer }) {
     <main className="page">
       <SearchBox className="mobile-search" id="search-mobile" />
 
-      <section aria-label="État d'ARCHIVE-9" className="row">
+      <section aria-label="État d'ARCHIVE-9" className="home-state">
         <div className="hero px">
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
             <Sprite asleep={data.paused} />

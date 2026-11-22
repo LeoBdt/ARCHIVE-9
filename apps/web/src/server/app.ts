@@ -1,8 +1,36 @@
-import { homeOverview, latestSelfState, readSettings, siteViewer, type Database, type SiteViewer } from "@archive-9/db";
+import { checkOwnFactText } from "@archive-9/core";
+import {
+  accessList,
+  actionJournal,
+  backstage,
+  correctOwnFact,
+  dossier,
+  factOwner,
+  forgetOwnFacts,
+  grantSiteAdmin,
+  replyJournal,
+  revokeSiteAdmin,
+  rollbackSelfState,
+  saveSetting,
+  homeOverview,
+  latestSelfState,
+  listDossiers,
+  memoryOverview,
+  readSettings,
+  recentEvents,
+  relationsOverview,
+  siteViewer,
+  skillsOverview,
+  type Database,
+  type SiteViewer,
+} from "@archive-9/db";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
+import { streamSSE } from "hono/streaming";
 import { readFile } from "node:fs/promises";
+import { z } from "zod";
+import type { Live } from "./live.ts";
 import { join } from "node:path";
 
 /** What the app needs from Better Auth, so tests can stand in for it. */
@@ -20,7 +48,11 @@ export interface AppDeps {
   clientDir: string | null;
   /** Public address, for the link preview. */
   siteUrl: string;
+  /** Change notifications from the database; without it, pages just poll. */
+  live?: Live;
 }
+
+const HEARTBEAT_MS = 25_000;
 
 export type Viewer = SiteViewer & { isOwner: boolean };
 
@@ -85,6 +117,12 @@ export function createApp(deps: AppDeps) {
 
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
 
+  // Writes only from the site itself: a page elsewhere can't post in a member's name.
+  app.use("/api/*", async (c, next) => {
+    if (c.req.method !== "GET" && c.req.header("origin") !== new URL(deps.siteUrl).origin) return c.json({ error: "bad_origin" }, 403);
+    await next();
+  });
+
   // Every other API call needs a session of someone who is on the server right now.
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
@@ -99,6 +137,29 @@ export function createApp(deps: AppDeps) {
 
   app.get("/api/me", (c) => c.json(c.var.viewer));
 
+  // Open pages learn right away that something changed. Only the kind of change is sent,
+  // never content, so nobody learns more here than the API would show them.
+  app.get("/api/live", (c) => {
+    const live = deps.live;
+    if (!live) return c.json({ error: "unavailable" }, 503);
+    return streamSSE(c, async (stream) => {
+      const unsubscribe = live.subscribe((type) => {
+        void stream.writeSSE({ event: "change", data: type });
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+      });
+      await stream.writeSSE({ event: "ready", data: "" });
+      // A quiet stream would be cut by the tunnel: say something every 25 s.
+      for (;;) {
+        await stream.sleep(HEARTBEAT_MS);
+        if (stream.aborted) break;
+        await stream.writeSSE({ event: "ping", data: "" });
+      }
+      unsubscribe();
+    });
+  });
+
   app.get("/api/home", async (c) => {
     const [overview, settings, self] = await Promise.all([homeOverview(deps.db), readSettings(deps.db), latestSelfState(deps.db)]);
     return c.json({
@@ -108,6 +169,101 @@ export function createApp(deps: AppDeps) {
       paused: settings.paused,
       version: settings.botVersion,
     });
+  });
+
+  app.get("/api/dossiers", async (c) => c.json(await listDossiers(deps.db, (c.req.query("q") ?? "").slice(0, 80))));
+
+  app.get("/api/dossiers/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!/^\d{17,20}$/.test(id)) return c.json({ error: "not_found" }, 404);
+    const profile = await dossier(deps.db, id);
+    if (!profile) return c.json({ error: "not_found" }, 404);
+    return c.json({ ...profile, isMine: id === c.var.viewer.id, canEdit: id === c.var.viewer.id || c.var.viewer.isAdmin });
+  });
+
+  app.get("/api/relations", async (c) => c.json(await relationsOverview(deps.db)));
+
+  app.get("/api/memory", async (c) => {
+    const [memory, settings] = await Promise.all([memoryOverview(deps.db), readSettings(deps.db)]);
+    return c.json({ ...memory, status: settings.paused ? null : (settings.statusLines[0] ?? null), version: settings.botVersion });
+  });
+
+  app.get("/api/skills", async (c) => c.json(await skillsOverview(deps.db)));
+
+  app.get("/api/journal", async (c) => {
+    const [replies, actions, events] = await Promise.all([replyJournal(deps.db, c.var.viewer), actionJournal(deps.db), recentEvents(deps.db, 60)]);
+    return c.json({ replies, actions, events });
+  });
+
+  app.get("/api/coulisses", async (c) => {
+    const [data, settings] = await Promise.all([backstage(deps.db), readSettings(deps.db)]);
+    return c.json({ ...data, paused: settings.paused });
+  });
+
+  // Facts: a member edits their own; an admin may edit anyone's, and it says so in the reason.
+  const factChange = z.discriminatedUnion("action", [
+    z.object({ action: z.literal("correct"), content: z.string(), reason: z.string().max(300).default("") }),
+    z.object({ action: z.literal("remove"), reason: z.string().trim().min(3).max(300) }),
+  ]);
+  app.post("/api/facts/:id", async (c) => {
+    const body = factChange.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "invalid" }, 400);
+    const viewer = c.var.viewer;
+    const id = c.req.param("id");
+    const owner = await factOwner(deps.db, id);
+    if (!owner || (owner !== viewer.id && !viewer.isAdmin)) return c.json({ error: "not_yours" }, 404);
+    const reason = owner === viewer.id ? body.data.reason.trim() : `[admin ${viewer.name}] ${body.data.reason.trim()}`.trim();
+    if (body.data.action === "remove") {
+      const removed = await forgetOwnFacts(deps.db, owner, [id], reason, "site");
+      return removed.length ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
+    }
+    const problem = checkOwnFactText(body.data.content);
+    if (problem) return c.json({ error: problem }, 400);
+    const changed = await correctOwnFact(deps.db, owner, id, body.data.content.trim(), reason, "site");
+    return changed ? c.json({ ok: true, ...changed }) : c.json({ error: "not_found" }, 404);
+  });
+
+  // Settings: admins only. The bot picks changes up within 30 seconds.
+  app.get("/api/settings", async (c) => {
+    if (!c.var.viewer.isAdmin) return c.json({ error: "forbidden" }, 403);
+    const s = await readSettings(deps.db);
+    return c.json({ paused: s.paused, spontaneity: s.spontaneity, showFallbackTag: s.showFallbackTag, listenedChannelIds: s.listenedChannelIds, channels: s.channelDirectory });
+  });
+  const settingsChange = z.object({
+    paused: z.boolean().optional(),
+    spontaneity: z.number().int().min(0).max(3).optional(),
+    showFallbackTag: z.boolean().optional(),
+    listenedChannelIds: z.array(z.string().regex(/^\d{17,20}$/)).max(200).optional(),
+  });
+  app.post("/api/settings", async (c) => {
+    if (!c.var.viewer.isAdmin) return c.json({ error: "forbidden" }, 403);
+    const body = settingsChange.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "invalid" }, 400);
+    const by = c.var.viewer.id;
+    // Absent fields stay as they are: zod leaves them out of the parsed object.
+    for (const [key, value] of Object.entries(body.data)) await saveSetting(deps.db, key as keyof typeof body.data, value as never, by);
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/memory/rollback", async (c) => {
+    if (!c.var.viewer.isAdmin) return c.json({ error: "forbidden" }, 403);
+    const body = z.object({ version: z.number().int().positive() }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "invalid" }, 400);
+    const version = await rollbackSelfState(deps.db, body.data.version, c.var.viewer.id);
+    return version ? c.json({ ok: true, version }) : c.json({ error: "not_found" }, 404);
+  });
+
+  // Who is admin: the owner only.
+  app.get("/api/access", async (c) => {
+    if (!c.var.viewer.isOwner) return c.json({ error: "forbidden" }, 403);
+    return c.json((await accessList(deps.db)).map((m) => ({ ...m, isOwner: m.id === deps.ownerId })));
+  });
+  app.post("/api/access", async (c) => {
+    if (!c.var.viewer.isOwner) return c.json({ error: "forbidden" }, 403);
+    const body = z.object({ memberId: z.string().regex(/^\d{17,20}$/), admin: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success || body.data.memberId === deps.ownerId) return c.json({ error: "invalid" }, 400);
+    await (body.data.admin ? grantSiteAdmin(deps.db, body.data.memberId, c.var.viewer.id) : revokeSiteAdmin(deps.db, body.data.memberId));
+    return c.json({ ok: true });
   });
 
   app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));

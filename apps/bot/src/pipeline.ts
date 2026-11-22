@@ -34,8 +34,10 @@ import {
   recentMessages,
   recentWithMember,
   recordAiUsage,
+  recordDecision,
   recordInteraction,
   recordSkillUse,
+  type DecisionInput,
   type AiUsageInput,
   type Database,
   type DirectoryMember,
@@ -98,6 +100,10 @@ function channelOf(message: Message): SendableChannels | null {
   return message.channel.isSendable() ? message.channel : null;
 }
 
+function channelName(message: Message): string | null {
+  return "name" in message.channel ? message.channel.name : null;
+}
+
 function parentIdOf(message: Message): string | null {
   return "parentId" in message.channel ? message.channel.parentId : null;
 }
@@ -118,6 +124,56 @@ function toTranscript(message: Message, selfId: string): TranscriptMessage {
 }
 
 /** Decides what to do with each incoming message and produces ARCHIVE-9's replies. */
+const SEND = new Set(["sendReply", "sendMessage"]);
+const short = (value: unknown) => {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > 160 ? `${text.slice(0, 159)}…` : text;
+};
+
+/** The « why » of a reply, as the journal shows it: context, reasoning, steps, what was sent. */
+export function describeRun(
+  result: { steps: { toolCalls: { toolName: string; input: unknown }[]; toolResults?: { toolName: string; output: unknown }[] }[]; reasoningText?: string | undefined },
+  ctx: {
+    participants: Participant[];
+    authorId: string;
+    skills: string[];
+    resolutions: string[];
+    mentionNote: string | null;
+    fallback: string | null;
+    freeOnly: boolean;
+  },
+) {
+  const context: string[] = [];
+  const author = ctx.participants.find((p) => p.id === ctx.authorId);
+  if (author) {
+    const relation = author.affinity === null ? "aucune relation encore" : `affinité ${String(author.affinity)}, confiance ${String(author.trust ?? 50)}${author.feeling ? `, « ${author.feeling} »` : ""}`;
+    context.push(`${author.name} : ${relation}`);
+    if (author.preferences?.length) context.push(`Ses préférences : ${author.preferences.join(" ; ")}`);
+  }
+  if (ctx.skills.length) context.push(`Skills appliquées : ${ctx.skills.join(", ")}`);
+  if (ctx.resolutions.length) context.push(`Mes résolutions : ${ctx.resolutions.join(" ; ")}`);
+  if (ctx.mentionNote) context.push("Le message s'adressait d'abord à quelqu'un d'autre");
+  if (ctx.fallback) context.push(ctx.fallback);
+  if (ctx.freeOnly) context.push("Budget du jour atteint : modèles gratuits seulement");
+
+  const steps: { tool: string; summary: string }[] = [];
+  const sent: string[] = [];
+  for (const step of result.steps) {
+    for (const call of step.toolCalls) {
+      const input = call.input as Record<string, unknown> | null;
+      if (SEND.has(call.toolName) && typeof input?.content === "string") {
+        sent.push(input.content);
+        steps.push({ tool: call.toolName, summary: "message envoyé" });
+        continue;
+      }
+      const output = step.toolResults?.find((r) => r.toolName === call.toolName)?.output;
+      steps.push({ tool: call.toolName, summary: output === undefined ? short(input) : short(output) });
+    }
+  }
+  const reasoning = result.reasoningText?.trim();
+  return { context, reasoning: reasoning ? reasoning.slice(0, 4000) : null, steps, sent: sent.length ? sent.join("\n") : null };
+}
+
 export class Pipeline {
   private readonly deps: PipelineDeps;
   private readonly namesSelf: (content: string) => boolean;
@@ -191,6 +247,9 @@ export class Pipeline {
       // A mention that gets no answer is worth seeing in the normal logs.
       const level = message.mentions.users.has(selfId) && decision.reason !== "self" ? "info" : "trace";
       this.deps.log[level]({ messageId: message.id, channelId: message.channelId, reason: decision.reason }, "ignored");
+      if (decision.reason !== "self") {
+        this.decide({ messageId: message.id, channelId: message.channelId, channelName: channelName(message), guildId: message.guildId, authorId: message.author.id, outcome: "ignored", reason: decision.reason, inAgents });
+      }
       return;
     }
     if (decision.fromBot) {
@@ -203,7 +262,16 @@ export class Pipeline {
     if (decision.action === "reply") {
       this.debouncer.cancel(message.channelId);
       this.pending.delete(message.channelId);
-      await this.respond(message, { addressed: true, runId: randomUUID(), triageReason: null, usage: [] });
+      const trigger = message.guildId === null
+        ? "message privé"
+        : message.mentions.users.has(selfId)
+          ? "mention @ARCHIVE-9"
+          : message.mentions.repliedUser?.id === selfId
+            ? "réponse à un de mes messages"
+            : continuesExchange
+              ? "suite de notre échange"
+              : "mon nom dans le message";
+      await this.respond(message, { addressed: true, runId: randomUUID(), triageReason: null, usage: [], trigger });
       return;
     }
     // Within a burst, a bot answering right after a human must not take the human's place.
@@ -242,16 +310,33 @@ export class Pipeline {
       if (!decision) return;
 
       if (decision.addressed) {
-        await this.respond(target, { addressed: true, runId, triageReason: decision.reason, usage: [] });
+        await this.respond(target, { addressed: true, runId, triageReason: decision.reason, usage: [], trigger: `le tri : ${decision.reason}` });
         return;
       }
       const level = this.deps.settings.value.spontaneity;
-      if (!this.ambientBudget.allows(channelId, level, decision.interest)) return;
+      if (!this.ambientBudget.allows(channelId, level, decision.interest)) {
+        this.decide({
+          runId,
+          messageId: target.id,
+          channelId,
+          channelName: channelName(target),
+          guildId: target.guildId,
+          authorId: target.author.id,
+          outcome: "silent",
+          reason: decision.reason,
+          interest: decision.interest,
+          inAgents: isInAgents(target.channel, this.deps.agentsCategoryId),
+          content: target.content,
+        });
+        return;
+      }
       const spoke = await this.respond(target, {
         addressed: false,
         runId,
         triageReason: `intérêt ${String(decision.interest)}/10 : ${decision.reason}`,
         usage: [],
+        trigger: `intervention spontanée, intérêt ${String(decision.interest)}/10 : ${decision.reason}`,
+        interest: decision.interest,
       });
       if (spoke) this.ambientBudget.record(channelId);
     } catch (error) {
@@ -287,7 +372,7 @@ export class Pipeline {
 
   private async respond(
     target: Message,
-    run: { addressed: boolean; runId: string; triageReason: string | null; usage: UsageRecord[] },
+    run: { addressed: boolean; runId: string; triageReason: string | null; usage: UsageRecord[]; trigger?: string; interest?: number },
   ): Promise<boolean> {
     const channel = channelOf(target);
     if (!channel || this.busyChannels.has(target.channelId)) return false;
@@ -299,6 +384,20 @@ export class Pipeline {
       const { db, ai, selfId, settings, log } = this.deps;
       const isDm = target.guildId === null;
       const inAgents = isInAgents(target.channel, this.deps.agentsCategoryId);
+      const base = (): DecisionInput => ({
+        runId: run.runId,
+        messageId: target.id,
+        channelId: target.channelId,
+        channelName: channelName(target),
+        guildId: target.guildId,
+        authorId: target.author.id,
+        outcome: "silent",
+        addressed: run.addressed,
+        inAgents,
+        interest: run.interest ?? null,
+        reason: run.trigger ?? null,
+        content: target.content,
+      });
       const spent = await aiCostSince(db, ["reply"], new Date(Date.now() - DAY_MS));
       const overBudget = spent >= this.deps.replyDailyBudgetUsd;
       if (overBudget) {
@@ -306,7 +405,10 @@ export class Pipeline {
           this.budgetWarnedAt = Date.now();
           log.warn({ spent, budget: this.deps.replyDailyBudgetUsd }, "reply budget spent: humans only, free models only");
         }
-        if (!run.addressed || target.author.bot) return false;
+        if (!run.addressed || target.author.bot) {
+          this.decide({ ...base(), outcome: "silent", reason: "budget du jour atteint" });
+          return false;
+        }
       }
       const history = isDm
         ? [...(await target.channel.messages.fetch({ limit: REPLY_WINDOW })).values()].map((m) => toTranscript(m, selfId))
@@ -375,6 +477,7 @@ export class Pipeline {
           send.sentMessageIds.push(sent.id);
         }
         await this.saveUsage(run.runId, outcome.usage, { replyMessageIds: send.sentMessageIds, detail: "offline" });
+        this.decide({ ...base(), outcome: "offline", details: { context: ["tous mes modèles étaient indisponibles : réponse toute faite"] } });
         return send.sentMessageIds.length > 0;
       }
 
@@ -404,6 +507,19 @@ export class Pipeline {
         await recordSkillUse(db, skills.map((k) => k.id));
         if (target.author.bot) this.loopGuard.recordReplyToBot(target.channelId);
       }
+      this.decide({
+        ...base(),
+        outcome: send.sentMessageIds.length > 0 ? "replied" : send.reacted ? "reacted" : "silent",
+        details: describeRun(outcome.result, {
+          participants,
+          authorId: target.author.id,
+          skills: skills.map((k) => k.name),
+          resolutions: (await currentSelfState(db, INITIAL_SELF_STATE)).resolutions ?? [],
+          mentionNote: this.mentionNote(target, directory),
+          fallback: outcome.isFallback ? `modèle de secours : ${shortModelName(outcome.ref)}` : null,
+          freeOnly: overBudget,
+        }),
+      });
       log.info(
         { channelId: target.channelId, model: outcome.ref.id, fallback: outcome.isFallback, sent: send.sentMessageIds.length },
         send.sentMessageIds.length ? "replied" : "stayed silent",
@@ -428,6 +544,13 @@ export class Pipeline {
     if (!target.mentions.users.has(this.deps.selfId)) return null;
     const name = directory.names.get(first) ?? target.mentions.users.get(first)?.username ?? "quelqu'un d'autre";
     return `Le message interpelle d'abord ${name} : la demande s'adresse à lui, toi tu es seulement cité. Ne réponds pas à sa place ; réagis à ce qui te concerne, ou tais-toi.`;
+  }
+
+  /** Stores what it decided about a message, for the journal and the backstage page. Never blocks. */
+  private decide(input: DecisionInput): void {
+    recordDecision(this.deps.db, input).catch((err: unknown) => {
+      this.deps.log.warn({ err }, "could not record decision");
+    });
   }
 
   /** Short memory: what the target author said lately outside this conversation. */

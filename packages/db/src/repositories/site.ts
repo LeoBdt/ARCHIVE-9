@@ -103,7 +103,12 @@ export async function homeOverview(db: Database, limits = { members: 6, skills: 
     .orderBy(desc(skills.usageCount), desc(skills.createdAt))
     .limit(limits.skills);
 
-  const n = limits.feed;
+  const feed = await recentEvents(db, limits.feed);
+  return { counts: counts ?? { messages: 0, facts: 0, dossiers: 0, skills: 0 }, closest, skills: topSkills, feed };
+}
+
+/** What ARCHIVE-9 learned, did and decided lately, newest first. */
+export async function recentEvents(db: Database, n: number): Promise<FeedEvent[]> {
   const [facts, actions, taught, relations, memories] = await Promise.all([
     db
       .select({ at: profileFacts.createdAt, name: memberName, content: profileFacts.content })
@@ -140,7 +145,7 @@ export async function homeOverview(db: Database, limits = { members: 6, skills: 
       .limit(3),
   ]);
 
-  const feed: FeedEvent[] = [
+  return [
     ...facts.map((f) => ({ at: f.at, kind: "learned" as const, text: `${f.name} : ${f.content}` })),
     ...actions.map((a) => ({ at: a.at, kind: "action" as const, text: actionText(a.tool, a.params) })),
     ...taught.map((s) => ({ at: s.at, kind: "skill" as const, text: `${s.author} m'a appris « ${s.name} ».` })),
@@ -153,8 +158,6 @@ export async function homeOverview(db: Database, limits = { members: 6, skills: 
   ]
     .sort((a, b) => b.at.getTime() - a.at.getTime())
     .slice(0, n);
-
-  return { counts: counts ?? { messages: 0, facts: 0, dossiers: 0, skills: 0 }, closest, skills: topSkills, feed };
 }
 
 export async function grantSiteAdmin(db: Database, memberId: string, by: string): Promise<void> {

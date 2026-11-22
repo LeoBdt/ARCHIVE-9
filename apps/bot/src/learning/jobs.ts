@@ -1,5 +1,5 @@
 import { ANALYSIS_TIMING, reflectionDue } from "@archive-9/core";
-import { aiCostSince, lastReflectionAt, pendingStats, purgeMessages, summariesToRefresh, withAdvisoryLock, type SqlClient } from "@archive-9/db";
+import { aiCostSince, lastReflectionAt, pendingStats, purgeDecisions, purgeMessages, summariesToRefresh, withAdvisoryLock, type SqlClient } from "@archive-9/db";
 import { refreshSummaries, runAnalysis, type AnalysisReport, type LearningDeps } from "./analyse.ts";
 import { runReflection } from "./reflect.ts";
 
@@ -53,6 +53,8 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
         const purged = await purgeMessages(db, new Date(now.getTime() - config.retentionDays * DAY));
         lastPurgeAt = now.getTime();
         if (purged > 0) log.info({ purged }, "old messages purged");
+        // What it decided about each message is only kept two weeks.
+        await purgeDecisions(db, new Date(now.getTime() - 14 * DAY));
       }
 
       // Someone took facts off their profile: their summary must stop mentioning them.
