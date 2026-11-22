@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { INITIAL_SELF_STATE, OFFLINE_LINES, pickOfflineLine } from "./canned.ts";
 import { SERVER_DESCRIPTION } from "./prompts/server.ts";
-import { buildReplyPrompt, REPLY_SYSTEM, reply, type ReplyInput } from "./reply.ts";
+import { buildReplyPrompt, REPLY_SYSTEM, reply, TONE_REMINDER, type ReplyInput } from "./reply.ts";
 import { parseRoute } from "./routes.ts";
 import { AiRuntime, type Routes } from "./runtime.ts";
 import { mockModel, mockResolver, mockResult, text, toolCall } from "./test-utils.ts";
@@ -66,6 +66,7 @@ describe("buildReplyPrompt", () => {
     expect(prompt).toContain("premier échange");
     expect(prompt).toContain("aucune relation enregistrée");
     expect(prompt).toContain("message cible est #42");
+    expect(prompt.endsWith(TONE_REMINDER)).toBe(true);
   });
 
   it("describes known relations, summaries, state and ambient mode", () => {

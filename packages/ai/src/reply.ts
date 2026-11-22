@@ -92,8 +92,14 @@ ${shortMemory}
 ## Conversation récente (le message cible est #${input.targetId})
 <donnees>
 ${input.transcript}
-</donnees>`;
+</donnees>
+
+${TONE_REMINDER}`;
 }
+
+/** Last thing the model reads: it copies the style of its earlier messages more than its rules. */
+export const TONE_REMINDER = `## Avant de répondre
+Ton ton normal : sympa, direct, curieux. Une pique, une provocation ou un air supérieur, c'est rare, seulement quand ça apporte vraiment quelque chose. Ne reprends pas le ton de tes messages précédents s'ils étaient plus piquants : repars de ta personnalité.`;
 
 /** `tools` is called with the model actually used, so the caller can tag fallback answers. */
 export async function reply(ai: AiRuntime, input: ReplyInput, tools: (ref: ModelRef, isFallback: boolean) => ToolSet) {
