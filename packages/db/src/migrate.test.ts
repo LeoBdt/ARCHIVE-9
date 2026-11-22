@@ -3,34 +3,40 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "./client.ts";
 import { runMigrations } from "./migrate.ts";
 import { members, messages, relationships } from "./schema.ts";
+import { createTestDatabase } from "./test-utils.ts";
 
-const url = process.env.TEST_DATABASE_URL;
+const baseUrl = process.env.TEST_DATABASE_URL;
 
-describe.skipIf(!url)("database schema", () => {
-  const conn = createDb(url ?? "", { max: 1 });
-  const { db } = conn;
+describe.skipIf(!baseUrl)("database schema", () => {
+  let url: string;
+  let conn: ReturnType<typeof createDb>;
+  let drop: () => Promise<void>;
 
   beforeAll(async () => {
-    await db.execute("drop schema if exists public cascade; drop schema if exists drizzle cascade; create schema public;");
-    await runMigrations(url ?? "");
+    const test = await createTestDatabase(baseUrl ?? "");
+    url = test.url;
+    drop = test.drop;
+    conn = createDb(url, { max: 1 });
   });
 
   afterAll(async () => {
     await conn.close();
+    await drop();
   });
 
   it("applies migrations twice without error", async () => {
-    await expect(runMigrations(url ?? "")).resolves.toBeUndefined();
+    await expect(runMigrations(url)).resolves.toBeUndefined();
   });
 
   it("enforces the affinity range", async () => {
-    await db.insert(members).values({ id: "100000000000000001", username: "a" });
+    await conn.db.insert(members).values({ id: "100000000000000001", username: "a" });
     await expect(
-      db.insert(relationships).values({ memberId: "100000000000000001", affinity: 150 }),
+      conn.db.insert(relationships).values({ memberId: "100000000000000001", affinity: 150 }),
     ).rejects.toThrow();
   });
 
   it("deletes a member's messages with the member", async () => {
+    const { db } = conn;
     await db.insert(members).values({ id: "100000000000000002", username: "b" });
     await db.insert(messages).values({
       id: "200000000000000001",
