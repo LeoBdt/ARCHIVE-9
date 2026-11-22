@@ -57,7 +57,7 @@ const discord = new Client({
   allowedMentions: { parse: ["users"], repliedUser: true },
 });
 
-const ingest = new Ingest({ db, settings, knownAiBotIds });
+const ingest = new Ingest({ db, settings, knownAiBotIds, agentsCategoryId: env.AGENTS_CATEGORY_ID ?? null });
 const presence = new Presence({ db, ai, log, settings, timezone: env.BOT_TIMEZONE, version });
 const server = { id: env.DISCORD_GUILD_ID };
 let pipeline: Pipeline | undefined;

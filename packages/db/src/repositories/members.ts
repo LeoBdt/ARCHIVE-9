@@ -26,7 +26,8 @@ export async function upsertMember(db: Database, input: MemberInput): Promise<vo
         username: input.username,
         displayName: input.displayName,
         isBot: input.isBot,
-        isKnownAiBot: input.isKnownAiBot,
+        // Once recognised as an AI agent, a bot stays one.
+        isKnownAiBot: sql`${members.isKnownAiBot} or ${input.isKnownAiBot}`,
         lastSeenAt: sql`now()`,
         nameHistory: sql`case
           when coalesce(${members.displayName}, ${members.username}) is distinct from ${name}
