@@ -122,6 +122,7 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain(SERVER_DESCRIPTION);
     expect(REPLY_SYSTEM).toContain("Une pique en fin de message");
     expect(REPLY_SYSTEM).toContain("péter un câble");
+    expect(REPLY_SYSTEM).toContain("c'est l'ancien message qui a tort");
   });
 });
 
