@@ -12,8 +12,8 @@ FROM node:26-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
-COPY --from=deps --chown=node:node /app/packages/core ./packages/core
-COPY --from=deps --chown=node:node /app/packages/db ./packages/db
+# Every workspace package, so a new one is never left out of the image
+COPY --from=deps --chown=node:node /app/packages ./packages
 COPY --from=deps --chown=node:node /app/apps/bot ./apps/bot
 USER node
 WORKDIR /app/apps/bot
