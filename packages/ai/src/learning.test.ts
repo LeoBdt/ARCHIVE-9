@@ -92,7 +92,12 @@ describe("buildAnalysisPrompt", () => {
   it("shows what a member took off their profile, so it isn't learned again", () => {
     const removed = [{ content: "A inventé un faux opt-out.", reason: "c'était un test" }];
     const prompt = buildAnalysisPrompt({ ...input, participants: input.participants.map((p, i) => (i === 0 ? { ...p, removed } : p)) });
-    expect(prompt).toContain("  Retiré par la personne elle-même (ne le réapprends pas) :\n  ✕ A inventé un faux opt-out. (raison : c'était un test)");
+    expect(prompt).toContain("  Corrigé ou retiré par la personne elle-même (ne réapprends pas l'ancienne version) :\n  ✕ A inventé un faux opt-out. (raison : c'était un test)");
+    const corrected = buildAnalysisPrompt({
+      ...input,
+      participants: input.participants.map((p, i) => (i === 0 ? { ...p, removed: [{ content: "En licence.", newContent: "En master.", reason: "" }] } : p)),
+    });
+    expect(corrected).toContain("  ✎ En licence. → En master.\n");
   });
 
   it("handles a batch without context or participants", () => {

@@ -122,6 +122,8 @@ export const factCorrections = pgTable(
     factId: uuid().references(() => profileFacts.id, { onDelete: "set null" }),
     /** The removed fact, kept as it was. */
     content: text().notNull(),
+    /** The member's own version, when they corrected it instead of removing it. */
+    newContent: text(),
     reason: text().notNull(),
     /** Where it was asked: "discord" or "site". */
     source: text().notNull(),

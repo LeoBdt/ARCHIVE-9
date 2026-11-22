@@ -1,4 +1,5 @@
-import { currentFacts, forgetOwnFacts } from "@archive-9/db";
+import { checkOwnFactText } from "@archive-9/core";
+import { correctOwnFact, currentFacts, forgetOwnFacts } from "@archive-9/db";
 import { tool } from "ai";
 import { z } from "zod";
 import { refused, type ToolContext } from "./context.ts";
@@ -40,6 +41,28 @@ export function createProfileTools(ctx: ToolContext) {
         const removed = await forgetOwnFacts(ctx.db, owner, ids, reason.trim(), "discord");
         ctx.log.info({ memberId: owner, count: removed.length }, "facts removed by their owner");
         return { ok: true, removed, note: "Retiré de la fiche. Le résumé sera réécrit dans les minutes qui viennent." };
+      },
+    }),
+
+    correctMyFact: tool({
+      description:
+        "Remplace une info de la fiche de la personne qui te parle par sa version à elle (« je suis en master, pas en licence »). Appelle myFacts d'abord. L'ancienne version reste dans l'historique et ne sera pas réapprise.",
+      inputSchema: z.object({
+        ref: z.string().describe("référence donnée par myFacts (F1, F2…)"),
+        content: z.string().describe("la bonne version, une phrase courte à la 3e personne, sans le nom"),
+        reason: z.string().max(300).default("").describe("ce qu'elle a dit pour justifier, si elle l'a dit"),
+      }),
+      execute: async ({ ref, content, reason }) => {
+        if (!allowed()) return refused("seulement quand la personne te le demande");
+        const problem = checkOwnFactText(content);
+        if (problem) return refused(problem);
+        const facts = await list();
+        const fact = facts[Number(/^F(\d+)$/i.exec(ref.trim())?.[1] ?? 0) - 1];
+        if (!fact) return refused("cette référence n'existe pas : appelle myFacts");
+        const changed = await correctOwnFact(ctx.db, owner, fact.id, content.trim(), reason.trim(), "discord");
+        if (!changed) return refused("cette info a déjà changé : appelle myFacts");
+        ctx.log.info({ memberId: owner }, "fact corrected by its owner");
+        return { ok: true, ...changed, note: "Corrigé. Le résumé sera réécrit dans les minutes qui viennent." };
       },
     }),
   };

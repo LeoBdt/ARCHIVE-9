@@ -12,6 +12,7 @@ const db = vi.hoisted(() => ({
   finishAction: vi.fn(() => Promise.resolve()),
   currentFacts: vi.fn(() => Promise.resolve([{ id: "f1", content: "Joue à CS2.", nature: "fact" }, { id: "f2", content: "A inventé un faux opt-out.", nature: "fact" }])),
   forgetOwnFacts: vi.fn(() => Promise.resolve(["A inventé un faux opt-out."])),
+  correctOwnFact: vi.fn(() => Promise.resolve({ before: "Joue à CS2.", after: "Joue à CS2 et Valorant." })),
   addFeedback: vi.fn(() => Promise.resolve(true)),
   addPreference: vi.fn(() => Promise.resolve(true)),
   listPreferences: vi.fn(() => Promise.resolve([{ id: "p1", content: "Vouvoie-moi." }])),
@@ -26,7 +27,7 @@ const { handleConfirmation } = await import("./confirm.ts");
 const { findChannel } = await import("./free.ts");
 const { createProfileTools } = await import("./profile.ts");
 const { createFeedbackTools } = await import("./feedback.ts");
-const { describeAction, formatSkills } = await import("../commands.ts");
+const { describeAction, forgetWarning, formatSkills } = await import("../commands.ts");
 
 const opts = { toolCallId: "t", messages: [], context: {} };
 const AGENTS = "500";
@@ -220,6 +221,13 @@ describe("own profile tools", () => {
     expect(db.forgetOwnFacts).toHaveBeenCalledWith(expect.anything(), "req", ["f2"], "c'était un test", "discord");
   });
 
+  it("replaces a fact by the person's own version, without contact details", async () => {
+    const tools = createProfileTools(setup().ctx);
+    expect(await tools.correctMyFact.execute({ ref: "F1", content: "Joue à CS2 et Valorant.", reason: "" }, opts)).toMatchObject({ ok: true, after: "Joue à CS2 et Valorant." });
+    expect(db.correctOwnFact).toHaveBeenCalledWith(expect.anything(), "req", "f1", "Joue à CS2 et Valorant.", "", "discord");
+    expect(await tools.correctMyFact.execute({ ref: "F1", content: "Appelez-moi au 06 12 34 56 78", reason: "" }, opts)).toMatchObject({ ok: false });
+  });
+
   it("only works when the person asked, never for a bot", async () => {
     for (const options of [{ addressed: false }, { authorBot: true }]) {
       const tools = createProfileTools(setup(options).ctx);
@@ -272,6 +280,15 @@ describe("commands", () => {
     expect(text).toContain("**Skills** · 1/200");
     expect(text).toContain("- **Pizza** · si « pizza, ananas » · par <@1> · 3 fois\n  L'ananas est un crime.");
     expect(formatSkills([])).toContain("Aucune skill");
+  });
+
+  it("spells out what /oublie-moi erases", () => {
+    const text = forgetWarning({ messages: 212, facts: 1, skills: 2, preferences: 0 });
+    expect(text).toContain("**212 messages archivés**");
+    expect(text).toContain("**1 fragment**");
+    expect(text).toContain("je **ne te réponds plus**");
+    expect(text).toContain("**C'est irréversible.**");
+    expect(text).toContain("de zéro");
   });
 
   it("describes logged actions", () => {
