@@ -1,6 +1,6 @@
 import type { TranscriptMessage } from "@archive-9/core";
 import { describe, expect, it } from "vitest";
-import { analyse, buildAnalysisPrompt, sanitiseAnalysis, type AnalysisInput, type RawAnalysis } from "./analysis.ts";
+import { analyse, buildAnalysisPrompt, describeServer, sanitiseAnalysis, type AnalysisInput, type RawAnalysis } from "./analysis.ts";
 import { INITIAL_SELF_STATE } from "./canned.ts";
 import { buildReflectionPrompt, reflect, type ReflectionInput } from "./reflection.ts";
 import { parseRoute } from "./routes.ts";
@@ -50,6 +50,7 @@ const input: AnalysisInput = {
       facts: [{ id: "uuid-b", category: "identity", nature: "fact", confidence: 0.8, content: "A 24 ans." }],
     },
     { id: SELF, name: "ARCHIVE-9", isBot: true, summary: null, affinity: null, trust: null, feeling: null, facts: [] },
+    { id: "500", name: "Le Royaume", isBot: false, isServer: true, summary: null, affinity: null, trust: null, feeling: null, facts: [] },
   ],
   conversations: [
     {
@@ -93,6 +94,40 @@ describe("buildAnalysisPrompt", () => {
     expect(prompt).toContain("- (aucun)");
     expect(prompt).toContain("#inconnu");
     expect(prompt).not.toContain("contexte");
+  });
+});
+
+describe("server profile", () => {
+  const server = { id: "500", name: "Le Royaume", description: "Serveur sur invitation fondé par Bluzzi.", summary: "Débats CS2." };
+
+  it("describes the server in the analysis prompt", () => {
+    const prompt = buildAnalysisPrompt({ ...input, server });
+    expect(prompt).toContain("## Le serveur\nNom : Le Royaume.\nCe que les admins en disent : Serveur sur invitation fondé par Bluzzi.\nCe que tu en as appris : Débats CS2.");
+    expect(prompt).toContain("- Le Royaume (ID 500) · le serveur lui-même");
+    expect(describeServer({ ...server, description: " ", summary: null })).toBe("Nom : Le Royaume.");
+  });
+
+  it("keeps group facts as they are and gives the server no relationship", () => {
+    const result = sanitiseAnalysis(
+      {
+        facts: [fact({ memberId: "500", category: "in_jokes", content: "Le mot de passe 10codes.", sourceMessageIds: ["12"] })],
+        retractions: [],
+        relationships: [{ memberId: "500", affinityDelta: 3, trustDelta: 0, reason: "x", sourceMessageId: null, feeling: null, howTheyTreatMe: null }],
+      },
+      input,
+    );
+    expect(result.facts[0]).toMatchObject({ memberId: "500", nature: "fact", reportedBy: null });
+    expect(result.relationships).toEqual([]);
+  });
+
+  it("has its own summary prompt", async () => {
+    const summaryInput = { name: "Le Royaume", isBot: false, server: { description: "Fondé par Bluzzi." }, feeling: null, facts: [] };
+    expect(buildSummaryPrompt(summaryInput)).toContain("Serveur : Le Royaume\nDescription des admins : Fondé par Bluzzi.");
+    expect(buildSummaryPrompt({ ...summaryInput, server: { description: "" } })).toContain("(aucune)");
+    const model = mockModel(mockResult(text(JSON.stringify({ summary: "x".repeat(1200), tagline: "t" }))));
+    const outcome = await summarise(new AiRuntime(routes, mockResolver({ "openrouter:main": model })), summaryInput);
+    expect(outcome.summary?.summary).toHaveLength(1000);
+    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain("garde sur le serveur Discord");
   });
 });
 
@@ -245,12 +280,24 @@ describe("reflect", () => {
   });
 
   it("reads a whole history in awakening mode", async () => {
-    const prompt = buildReflectionPrompt({ ...reflection, mode: "awakening" });
+    const prompt = buildReflectionPrompt({ ...reflection, mode: "awakening", server: { id: "500", name: "Le Royaume", description: "", summary: null } });
+    expect(prompt).toContain("## Le serveur\nNom : Le Royaume.");
     expect(prompt).toContain("## Ce que tu as appris sur les membres");
     expect(prompt).toContain("## Les conversations marquantes du mois");
-    const model = mockModel(mockResult(text(JSON.stringify({ mood: "m", opinions: { add: [], remove: [] }, runningJokes: { add: [], remove: [] }, notes: "" }))));
-    await reflect(new AiRuntime(routes, mockResolver({ "openrouter:main": model })), { ...reflection, mode: "awakening" });
+    const awakening = {
+      mood: "m",
+      opinions: { add: [], remove: [] },
+      runningJokes: { add: [], remove: [] },
+      notes: "",
+      serverFacts: [
+        { category: "in_jokes", nature: "fact", confidence: 3, content: " Le mot de passe 10codes. " },
+        { category: "other", nature: "inference", confidence: 0.5, content: " " },
+      ],
+    };
+    const model = mockModel(mockResult(text(JSON.stringify(awakening))));
+    const outcome = await reflect(new AiRuntime(routes, mockResolver({ "openrouter:main": model })), { ...reflection, mode: "awakening" });
     expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain("première prise de conscience");
+    expect(outcome.serverFacts).toEqual([{ category: "in_jokes", nature: "fact", confidence: 1, content: "Le mot de passe 10codes." }]);
   });
 
   it("returns the requested change", async () => {

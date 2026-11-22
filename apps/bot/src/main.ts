@@ -1,5 +1,5 @@
 import { AiRuntime, createModelResolver } from "@archive-9/ai";
-import { createDb, ping, runMigrations } from "@archive-9/db";
+import { createDb, ensureServerProfile, ping, runMigrations } from "@archive-9/db";
 import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
 import { COMMANDS, handleInteraction } from "./commands.ts";
 import { parseEnv } from "./env.ts";
@@ -48,6 +48,7 @@ const discord = new Client({
 });
 
 const ingest = new Ingest({ db, settings, knownAiBotIds });
+const server = { id: env.DISCORD_GUILD_ID, description: () => settings.value.serverDescription };
 let pipeline: Pipeline | undefined;
 let stopJobs: (() => void) | undefined;
 
@@ -68,6 +69,7 @@ discord.once(Events.ClientReady, (client) => {
     aliases: env.BOT_ALIASES,
     softAliases: env.BOT_SOFT_ALIASES,
     timezone: env.BOT_TIMEZONE,
+    server,
   });
   stopJobs ??= startLearningJobs(
     {
@@ -81,6 +83,7 @@ discord.once(Events.ClientReady, (client) => {
         const channel = client.channels.cache.get(id);
         return channel && "name" in channel ? channel.name : null;
       },
+      server,
     },
     {
       analysisDailyBudgetUsd: env.ANALYSIS_DAILY_BUDGET_USD,
@@ -90,6 +93,7 @@ discord.once(Events.ClientReady, (client) => {
   );
   safely("command registration", async () => {
     const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID);
+    await ensureServerProfile(db, guild.id, guild.name);
     await guild.commands.set(COMMANDS);
     log.info({ count: COMMANDS.length }, "commands registered");
   });
@@ -119,7 +123,7 @@ discord.on(Events.MessageReactionRemove, (reaction) => {
 });
 discord.on(Events.InteractionCreate, (interaction) => {
   if (!discord.user) return;
-  safely("interaction", () => handleInteraction(interaction, { db, settings, log, selfId: discord.user?.id ?? "" }));
+  safely("interaction", () => handleInteraction(interaction, { db, settings, log, selfId: discord.user?.id ?? "", guildId: env.DISCORD_GUILD_ID }));
 });
 
 const health = startHealthServer(env.HEALTH_PORT, async () => {

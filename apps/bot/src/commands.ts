@@ -7,13 +7,19 @@ import {
   ButtonStyle,
   ContextMenuCommandBuilder,
   MessageFlags,
+  LabelBuilder,
+  ModalBuilder,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Interaction,
   type MessageContextMenuCommandInteraction,
+  type ModalSubmitInteraction,
 } from "discord.js";
+import { truncate } from "@archive-9/core";
 import { SPONTANEITY_LEVELS, spontaneity } from "@archive-9/core";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
@@ -24,6 +30,7 @@ const ephemeral = MessageFlags.Ephemeral;
 export const COMMANDS = [
   new SlashCommandBuilder().setName("archive-9").setDescription("ARCHIVE-9 se présente"),
   new SlashCommandBuilder().setName("mafiche").setDescription("Ce qu'ARCHIVE-9 sait sur toi"),
+  new SlashCommandBuilder().setName("serveur").setDescription("Ce qu'ARCHIVE-9 sait du serveur"),
   new SlashCommandBuilder().setName("oublie-moi").setDescription("Effacer toutes tes données et ne plus être archivé"),
   new SlashCommandBuilder().setName("pause").setDescription("Couper toutes les réponses d'ARCHIVE-9").setDefaultMemberPermissions(ADMIN),
   new SlashCommandBuilder().setName("reprendre").setDescription("Relancer ARCHIVE-9 après une pause").setDefaultMemberPermissions(ADMIN),
@@ -33,6 +40,7 @@ export const COMMANDS = [
     .setDefaultMemberPermissions(ADMIN)
     .addSubcommand((s) => s.setName("etat").setDescription("Afficher les réglages"))
     .addSubcommand((s) => s.setName("ecoute").setDescription("Écouter ou ignorer ce salon"))
+    .addSubcommand((s) => s.setName("serveur").setDescription("Décrire le serveur à ARCHIVE-9"))
     .addSubcommand((s) =>
       s
         .setName("spontaneite")
@@ -59,6 +67,7 @@ export interface CommandDeps {
   settings: SettingsStore;
   log: Logger;
   selfId: string;
+  guildId: string;
 }
 
 function onOff(value: boolean): string {
@@ -148,6 +157,22 @@ async function config(i: ChatInputCommandInteraction, deps: CommandDeps) {
     await i.reply({ content: listening ? "Ce salon n'est plus archivé." : "J'archive ce salon à partir de maintenant.", flags: ephemeral });
     return;
   }
+  if (sub === "serveur") {
+    const input = new TextInputBuilder()
+      .setCustomId("description")
+      .setStyle(TextInputStyle.Paragraph)
+      .setMaxLength(SERVER_DESCRIPTION_MAX)
+      .setRequired(false)
+      .setPlaceholder("Son nom, qui l'a fondé, son histoire, ce qui rassemble les membres…");
+    if (settings.value.serverDescription) input.setValue(settings.value.serverDescription);
+    await i.showModal(
+      new ModalBuilder()
+        .setCustomId(SERVER_MODAL)
+        .setTitle("Le serveur")
+        .addLabelComponents(new LabelBuilder().setLabel("Ce qu'il doit savoir du serveur").setTextInputComponent(input)),
+    );
+    return;
+  }
   if (sub === "spontaneite") {
     const level = spontaneity(i.options.getInteger("niveau", true));
     await settings.set("spontaneity", level.level, i.user.id);
@@ -168,9 +193,33 @@ async function config(i: ChatInputCommandInteraction, deps: CommandDeps) {
       `Spontanéité : ${String(s.spontaneity)} · ${spontaneity(s.spontaneity).name}`,
       `Mention de secours : ${onOff(s.showFallbackTag)}`,
       `Salons écoutés : ${s.listenedChannelIds.map((id) => `<#${id}>`).join(", ") || "aucun"}`,
+      `Description du serveur : ${s.serverDescription ? `${String(s.serverDescription.length)} caractères` : "aucune"}`,
     ].join("\n"),
     flags: ephemeral,
   });
+}
+
+const SERVER_MODAL = "server-description";
+const SERVER_DESCRIPTION_MAX = 2_000;
+
+async function saveServerDescription(i: ModalSubmitInteraction, deps: CommandDeps) {
+  const text = i.fields.getTextInputValue("description").trim();
+  await deps.settings.set("serverDescription", text, i.user.id);
+  await i.reply({ content: text ? "Description du serveur enregistrée. Je la garde en tête." : "Description effacée.", flags: ephemeral });
+}
+
+async function serverProfile(i: ChatInputCommandInteraction, deps: CommandDeps) {
+  const overview = await profileOverview(deps.db, deps.guildId);
+  const facts = await currentFacts(deps.db, deps.guildId, 8);
+  const description = deps.settings.value.serverDescription;
+  const lines = [`**${overview.member?.username ?? i.guild?.name ?? "Le serveur"}**`];
+  if (overview.tagline) lines.push(`> ${overview.tagline}`);
+  if (description) lines.push("", truncate(description, 700));
+  if (overview.summary) lines.push("", "**Ce que j'en ai appris**", overview.summary);
+  else if (facts.length > 0) lines.push("", "**Ce que j'en ai appris**", ...facts.map((f) => `- ${f.content}`));
+  if (!description && !overview.summary && facts.length === 0) lines.push("", "Je ne sais encore rien de ce serveur. Un admin peut me le décrire avec `/config serveur`.");
+  lines.push(`-# ${String(overview.factCount)} fragments retenus sur le serveur`);
+  await i.reply({ content: truncate(lines.join("\n"), 2_000), flags: ephemeral });
 }
 
 async function diagnostic(i: MessageContextMenuCommandInteraction, deps: CommandDeps) {
@@ -227,6 +276,9 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
     case "mafiche":
       await myProfile(i, deps);
       break;
+    case "serveur":
+      await serverProfile(i, deps);
+      break;
     case "oublie-moi":
       await forgetMe(i);
       break;
@@ -248,6 +300,8 @@ export async function handleInteraction(interaction: Interaction, deps: CommandD
   try {
     if (interaction.isButton()) {
       await onButton(interaction, deps);
+    } else if (interaction.isModalSubmit() && interaction.customId === SERVER_MODAL) {
+      await saveServerDescription(interaction, deps);
     } else if (interaction.isMessageContextMenuCommand() && interaction.commandName === "Diagnostic") {
       await diagnostic(interaction, deps);
     } else if (interaction.isChatInputCommand()) {

@@ -33,6 +33,7 @@ import {
 import type { Message, SendableChannels } from "discord.js";
 import { createSendTools, type SendState } from "./discord/send-tools.ts";
 import { keepTyping } from "./discord/typing.ts";
+import { loadServerContext, type ServerSource } from "./learning/server.ts";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
 
@@ -46,6 +47,7 @@ export interface PipelineDeps {
   aliases: string[];
   softAliases: string[];
   timezone: string;
+  server: ServerSource;
 }
 
 const TRIAGE_WINDOW = 10;
@@ -277,6 +279,7 @@ export class Pipeline {
           transcript: formatTranscript(history, { targetId: target.id, timeZone: this.deps.timezone }),
           participants,
           elsewhere,
+          server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
         },
         (ref, isFallback) =>

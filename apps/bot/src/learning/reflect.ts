@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { INITIAL_SELF_STATE, reflect } from "@archive-9/ai";
 import { applySelfStateChange, groupConversations, SELF_STATE_LIMITS } from "@archive-9/core";
 import {
+  applyAnalysis,
   currentSelfState,
   factsSince,
   messagesSince,
@@ -11,7 +12,8 @@ import {
   saveSelfState,
   type StoredMessage,
 } from "@archive-9/db";
-import type { LearningDeps } from "./analyse.ts";
+import { refreshSummaries, type LearningDeps } from "./analyse.ts";
+import { loadServerContext } from "./server.ts";
 
 const DAY = 24 * 60 * 60_000;
 
@@ -54,7 +56,8 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     return false;
   }
 
-  const [state, learned, changes] = await Promise.all([
+  const [server, state, learned, changes] = await Promise.all([
+    loadServerContext(db, deps.server),
     currentSelfState(db, INITIAL_SELF_STATE),
     factsSince(db, since, config.facts),
     mode === "evening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
@@ -63,6 +66,7 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     mode,
     now: new Date(),
     timezone: deps.timezone,
+    server,
     state,
     conversations: pickConversations(messages, config.maxMessages, mode).map((c) => ({
       channelName: c[0]?.guildId === null ? "message privé" : deps.channelName(c[0]?.channelId ?? ""),
@@ -74,6 +78,19 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
   const runId = randomUUID();
   await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId, detail: mode })));
   if (!outcome.change) throw new Error(`${mode} reflection produced no usable output`);
+
+  if (server && outcome.serverFacts.length > 0) {
+    await applyAnalysis(db, {
+      facts: outcome.serverFacts.map((f) => ({ ...f, memberId: server.id, sourceMessageIds: [], reportedBy: null, replacesId: null })),
+      retractions: [],
+      relationships: [],
+      analysedIds: [],
+      at: new Date(),
+    });
+    const cost = { costUsd: 0 };
+    await refreshSummaries(deps, [server.id], cost);
+    log.info({ facts: outcome.serverFacts.length }, "server profile seeded");
+  }
 
   const next = applySelfStateChange(state, outcome.change, config.limits);
   const version = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);

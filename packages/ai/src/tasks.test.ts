@@ -93,6 +93,12 @@ describe("buildReplyPrompt", () => {
     expect(prompt).toMatch(/### en message privé\n<donnees>\n19:00 #7 \[Tom \(ID 1\)\] : j'ai stage lundi\n<\/donnees>/);
     expect(prompt).not.toContain("#jeux");
   });
+
+  it("tells it about the server", () => {
+    const prompt = buildReplyPrompt({ ...baseInput, server: { id: "5", name: "Le Royaume", description: "Fondé par Bluzzi.", summary: null } });
+    expect(prompt).toContain("## Le serveur\nNom : Le Royaume.\nCe que les admins en disent : Fondé par Bluzzi.");
+    expect(buildReplyPrompt(baseInput)).not.toContain("## Le serveur");
+  });
 });
 
 describe("reply", () => {

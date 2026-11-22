@@ -10,6 +10,7 @@ import type { MessageReactions } from "@archive-9/core";
 import {
   createDb,
   ensureMember,
+  ensureServerProfile,
   existingMessageIds,
   insertMessages,
   loadSettings,
@@ -181,7 +182,17 @@ const lock = await withAdvisoryLock(client, ANALYSIS_LOCK, async () => {
   );
   console.log(`\n${String(inserted.length)} messages archived. Analysing (max $${maxCost.toFixed(2)})…`);
 
-  const deps = { db, ai, log, selfId: self.id, timezone: env.BOT_TIMEZONE, channelName: (id: string) => channels.get(id) ?? null };
+  const guild = (await rest.get(Routes.guild(env.DISCORD_GUILD_ID))) as { id: string; name: string };
+  await ensureServerProfile(db, guild.id, guild.name);
+  const deps = {
+    db,
+    ai,
+    log,
+    selfId: self.id,
+    timezone: env.BOT_TIMEZONE,
+    channelName: (id: string) => channels.get(id) ?? null,
+    server: { id: guild.id, description: () => settings.serverDescription },
+  };
   const report = await runAnalysis(
     deps,
     {
