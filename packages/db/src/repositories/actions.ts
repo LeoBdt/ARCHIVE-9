@@ -59,3 +59,24 @@ export async function markUndone(db: Database, id: string, by: string): Promise<
 export async function reopenAction(db: Database, id: string): Promise<void> {
   await db.update(actionsLog).set({ status: "done", undoneAt: null, undoneBy: null }).where(eq(actionsLog.id, id));
 }
+
+/**
+ * Takes a pending action for its confirmation (or cancels it), once: a second click finds
+ * nothing. A confirmed action counts as done from here; `finishAction` records what really happened.
+ */
+export async function claimPending(db: Database, id: string, status: "done" | "cancelled" = "done", refusalReason: string | null = null) {
+  const [row] = await db
+    .update(actionsLog)
+    .set({ status, refusalReason })
+    .where(and(eq(actionsLog.id, id), eq(actionsLog.status, "pending")))
+    .returning();
+  return row;
+}
+
+export async function finishAction(
+  db: Database,
+  id: string,
+  result: { status: ActionStatus; refusalReason?: string | null; previousValue?: Record<string, unknown> | null },
+): Promise<void> {
+  await db.update(actionsLog).set(result).where(eq(actionsLog.id, id));
+}

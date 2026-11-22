@@ -25,7 +25,7 @@ export type AiCallStatus = (typeof AI_CALL_STATUSES)[number];
 export const ACTION_TIERS = ["free", "controlled"] as const;
 export type ActionTier = (typeof ACTION_TIERS)[number];
 
-export const ACTION_STATUSES = ["done", "refused", "failed", "undone"] as const;
+export const ACTION_STATUSES = ["done", "refused", "failed", "undone", "pending", "cancelled"] as const;
 export type ActionStatus = (typeof ACTION_STATUSES)[number];
 
 export const SELF_STATE_SOURCES = ["initial", "reflection", "rollback"] as const;

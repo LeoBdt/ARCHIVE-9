@@ -44,6 +44,8 @@ const schema = z.object({
   BOT_ALIASES: list.default(["ARCHIVE-9", "ARCHIVE9", "archive 9", "A9"]),
   BOT_SOFT_ALIASES: list.default(["archive"]),
   LISTENED_CHANNEL_IDS: idList,
+  /** The AGENTS category: free speech there, explicit @mentions and replies only elsewhere. */
+  AGENTS_CATEGORY_ID: z.preprocess((v) => (v === "" ? undefined : v), snowflake.optional()),
 
   OPENROUTER_API_KEY: z.string().min(1),
   GROQ_API_KEY: z.string().min(1),
@@ -54,6 +56,8 @@ const schema = z.object({
   AI_ROUTE_REFLECTION: route(DEFAULT_ROUTES.reflection),
 
   ANALYSIS_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
+  /** Past this over 24 h, only humans who mention or reply get an answer, from free models. */
+  REPLY_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(1),
   REFLECTION_HOUR: z.coerce.number().int().min(0).max(23).default(23),
   MESSAGE_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 });

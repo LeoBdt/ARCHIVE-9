@@ -25,6 +25,8 @@ export interface ReplyInput {
   timezone: string;
   channelName: string | null;
   isDm: boolean;
+  /** In the AGENTS category, where bots may speak freely. */
+  inAgents: boolean;
   /** True when ARCHIVE-9 was mentioned, named, replied to or DMed. */
   addressed: boolean;
   targetId: string;
@@ -63,12 +65,17 @@ function describeSelfState(state: SelfState): string {
 
 export function buildReplyPrompt(input: ReplyInput): string {
   const when = input.now.toLocaleString("fr-FR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" });
-  const where = input.isDm ? "message privé" : `salon #${input.channelName ?? "inconnu"}`;
+  const where = input.isDm
+    ? "message privé"
+    : `salon #${input.channelName ?? "inconnu"}, ${input.inAgents ? "dans la catégorie AGENTS (liberté totale)" : "hors de la catégorie AGENTS"}`;
   const target = input.participants.find((p) => p.id === input.targetAuthorId);
   const firstContact = target && !target.introduced;
-  const situation = input.addressed
-    ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."
-    : `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
+  const ambient = `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
+  const situation = !input.addressed
+    ? ambient
+    : input.isDm || input.inAgents
+      ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."
+      : "On t'a mentionné avec @ ou on répond à ton message : réponds à ce qu'on te demande vraiment. Si c'est du troll ou une mention dans le vide, une réponse courte, une réaction ou staySilent suffisent.";
 
   const author = target?.name ?? "ton interlocuteur";
   const elsewhere = (input.elsewhere ?? []).filter((e) => e.messages.length > 0);
@@ -111,7 +118,12 @@ export const TONE_REMINDER = `## Avant de répondre
 Ton ton normal : sympa, direct, curieux. Une pique, une provocation ou un air supérieur, c'est rare, seulement quand ça apporte vraiment quelque chose. Ne reprends pas le ton de tes messages précédents s'ils étaient plus piquants : repars de ta personnalité.`;
 
 /** `tools` is called with the model actually used, so the caller can tag fallback answers. */
-export async function reply(ai: AiRuntime, input: ReplyInput, tools: (ref: ModelRef, isFallback: boolean) => ToolSet) {
+export async function reply(
+  ai: AiRuntime,
+  input: ReplyInput,
+  tools: (ref: ModelRef, isFallback: boolean) => ToolSet,
+  options: { freeOnly?: boolean } = {},
+) {
   const prompt = buildReplyPrompt(input);
   const primary = ai.primary("reply");
   return ai.generate(
@@ -129,6 +141,6 @@ export async function reply(ai: AiRuntime, input: ReplyInput, tools: (ref: Model
         maxRetries: 0,
         maxOutputTokens: 800,
       }),
-    { estimatedTokens: Math.ceil((REPLY_SYSTEM.length + prompt.length) / 3) + 1_000 },
+    { estimatedTokens: Math.ceil((REPLY_SYSTEM.length + prompt.length) / 3) + 1_000, freeOnly: options.freeOnly },
   );
 }

@@ -28,6 +28,15 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ ...base, REFLECTION_HOUR: "24" })).toThrow(/REFLECTION_HOUR/);
   });
 
+  it("reads the AGENTS category and the reply budget", () => {
+    expect(parseEnv({ ...base, AGENTS_CATEGORY_ID: "1574094410830844105", REPLY_DAILY_BUDGET_USD: "2.5" })).toMatchObject({
+      AGENTS_CATEGORY_ID: "1574094410830844105",
+      REPLY_DAILY_BUDGET_USD: 2.5,
+    });
+    expect(parseEnv({ ...base, AGENTS_CATEGORY_ID: "" }).AGENTS_CATEGORY_ID).toBeUndefined();
+    expect(parseEnv(base).REPLY_DAILY_BUDGET_USD).toBe(1);
+  });
+
   it("splits and trims ID lists", () => {
     const env = parseEnv({ ...base, KNOWN_AI_BOT_IDS: "123456789012345678, 876543210987654321," });
     expect(env.KNOWN_AI_BOT_IDS).toEqual(["123456789012345678", "876543210987654321"]);

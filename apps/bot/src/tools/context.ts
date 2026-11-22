@@ -17,6 +17,8 @@ export interface ToolContext {
   selfId: string;
   /** The server ARCHIVE-9 lives on: actions only ever happen there. */
   guildId: string;
+  /** Where bots may do anything; actions that stay inside it need no confirmation. */
+  agentsCategoryId: string | null;
   /** Someone spoke to ARCHIVE-9 (mention, name, reply, DM). */
   addressed: boolean;
   timezone: string;

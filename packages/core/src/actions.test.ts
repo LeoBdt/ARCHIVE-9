@@ -11,12 +11,15 @@ describe("checkRequester", () => {
 });
 
 describe("checkMemberTarget", () => {
-  const ok = { isSelf: false, isOwner: false, isAdmin: false, isBot: false, optedOut: false, manageable: true };
+  const ok = { isSelf: false, isOwner: false, isBot: false, optedOut: false, manageable: true, requesterAbove: true };
   it("allows a regular member", () => {
     expect(checkMemberTarget(ok)).toBeNull();
   });
-  it.each(["isSelf", "isOwner", "isAdmin", "isBot", "optedOut"] as const)("refuses when %s", (key) => {
+  it.each(["isSelf", "isOwner", "isBot", "optedOut"] as const)("refuses when %s", (key) => {
     expect(checkMemberTarget({ ...ok, [key]: true })).not.toBeNull();
+  });
+  it("follows Discord's hierarchy for the requester", () => {
+    expect(checkMemberTarget({ ...ok, requesterAbove: false })).toContain("pas au-dessus");
   });
   it("refuses a member above ARCHIVE-9", () => {
     expect(checkMemberTarget({ ...ok, manageable: false })).toContain("au-dessus");
@@ -24,7 +27,7 @@ describe("checkMemberTarget", () => {
 });
 
 describe("checkRoleTarget", () => {
-  const ok = { isEveryone: false, managed: false, hasSensitivePermission: false, belowMine: true };
+  const ok = { isEveryone: false, managed: false, hasSensitivePermission: false, belowMine: true, belowRequester: true };
   it("allows a plain role below ARCHIVE-9's", () => {
     expect(checkRoleTarget(ok)).toBeNull();
   });
@@ -32,6 +35,7 @@ describe("checkRoleTarget", () => {
     expect(checkRoleTarget({ ...ok, hasSensitivePermission: true })).toContain("sensibles");
     expect(checkRoleTarget({ ...ok, managed: true })).not.toBeNull();
     expect(checkRoleTarget({ ...ok, belowMine: false })).toContain("au-dessus");
+    expect(checkRoleTarget({ ...ok, belowRequester: false })).toContain("personne qui demande");
   });
 });
 

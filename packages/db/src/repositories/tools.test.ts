@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "../client.ts";
 import { createTestDatabase } from "../test-utils.ts";
-import { countActions, getAction, logAction, markUndone, recentControlledActions, reopenAction } from "./actions.ts";
+import { claimPending, countActions, finishAction, getAction, logAction, markUndone, recentControlledActions, reopenAction } from "./actions.ts";
 import { upsertMember } from "./members.ts";
 import { forgetMember } from "./profiles.ts";
 import { activeSkills, createSkill, deleteSkill, findActiveSkill, recordSkillUse, skillCounts } from "./skills.ts";
@@ -66,5 +66,14 @@ describe.skipIf(!url)("skills and actions", () => {
     expect(await countActions(db, "renameChannel", since)).toBe(1);
     await reopenAction(db, done);
     expect((await getAction(db, done))?.status).toBe("done");
+  });
+
+  it("confirms a pending action only once", async () => {
+    const id = await logAction(db, { tool: "setRole", tier: "controlled", params: { role: "Gamer" }, status: "pending", requestedBy: "2", sourceMessageId: "m" });
+    expect(await countActions(db, "setRole", new Date(Date.now() - 60_000))).toBe(0);
+    expect((await claimPending(db, id))?.params).toEqual({ role: "Gamer" });
+    expect(await claimPending(db, id)).toBeUndefined();
+    await finishAction(db, id, { status: "done", previousValue: { had: false } });
+    expect(await getAction(db, id)).toMatchObject({ status: "done", previousValue: { had: false } });
   });
 });

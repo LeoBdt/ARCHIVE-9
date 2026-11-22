@@ -52,6 +52,7 @@ const baseInput: ReplyInput = {
   timezone: "Europe/Paris",
   channelName: "général",
   isDm: false,
+  inAgents: true,
   addressed: true,
   targetId: "42",
   targetAuthorId: "1",
@@ -87,6 +88,13 @@ describe("buildReplyPrompt", () => {
     expect(prompt).toContain("message privé");
     expect(prompt).toContain("Blagues récurrentes : Tom et ses retards");
     expect(prompt).not.toContain("récemment ailleurs");
+  });
+
+  it("says where it is, and asks for restraint outside AGENTS", () => {
+    expect(buildReplyPrompt(baseInput)).toContain("salon #général, dans la catégorie AGENTS");
+    const outside = buildReplyPrompt({ ...baseInput, inAgents: false });
+    expect(outside).toContain("hors de la catégorie AGENTS");
+    expect(outside).toContain("du troll");
   });
 
   it("adds the short memory of the target author", () => {
@@ -164,6 +172,7 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain("c'est l'ancien message qui a tort");
     expect(REPLY_SYSTEM).toContain("jamais de toi-même");
     expect(REPLY_SYSTEM).toContain("`/skills`");
+    expect(REPLY_SYSTEM).toContain("## La règle du serveur pour les bots");
   });
 });
 

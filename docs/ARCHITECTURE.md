@@ -65,13 +65,14 @@ flowchart TD
 ```
 
 - Messages from listened channels (and their threads) and DMs are stored, along with edits, deletions and reaction counts. DMs are learned from like any channel. Opted-out members are never stored.
-- A message is **addressed** to ARCHIVE-9 without AI when it mentions it, contains a strong name (`BOT_ALIASES`, ignored after an apostrophe), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between.
+- The server's rule for bots: in the **AGENTS category** (`AGENTS_CATEGORY_ID`, its channels and their threads) they may speak freely. Everywhere else, ARCHIVE-9 still archives everything but only answers a human who mentions it with @ or replies to one of its messages, without triage; names, follow-ups, other bots and unprompted interventions are ignored there. DMs are answered as before. Without `AGENTS_CATEGORY_ID`, no channel is free.
+- In AGENTS, a message is **addressed** to ARCHIVE-9 without AI when it mentions it, contains a strong name (`BOT_ALIASES`, ignored after an apostrophe), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between.
 - A weak name (`BOT_SOFT_ALIASES`, e.g. « archive », also a common verb) sends the message to triage instead.
 - In observer mode, messages still go to triage for 3 minutes after ARCHIVE-9 spoke in the channel.
 - **Triage** gets the last 10 messages and a note computed by the code (whether ARCHIVE-9 is in the conversation, who it answered, who wrote since, who the message replies to, weak name match), and returns `{ addressed, interest, reason }`, validated with zod. `addressed` means the message is for ARCHIVE-9; `interest` (0–10) is the value of an unprompted intervention. Within a burst, the last human message stays the target even if a bot answers right after.
 - Transcripts show who each reply is for (`↪ à Dave`) and tags as `@Name`.
 - **Reply** gets the last 20 messages, the participants' profile summaries and relationships, the current self state, the profiles of people the message tags or names (by name, former name, first name of 3+ letters or initials such as "jp", up to 5), and a short memory: what the target author said in the last 6 hours outside those 20 messages (other channels, DMs) with ARCHIVE-9's replies, up to 10 messages. All of it is built by the code. It also gets the skills that apply (see below). The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
-- The bot loop guard allows at most 3 consecutive replies to bots in a channel without a human, one reply to a bot per 30 s, and 40 per day.
+- The bot loop guard (bots are only answered in AGENTS) allows at most 10 consecutive replies to bots in a channel without a human, and one reply to a bot per 10 s.
 - While the reply is being generated, the typing indicator is shown.
 
 ### Tools
@@ -91,10 +92,13 @@ Controlled actions are checked by the code before anything reaches Discord:
 
 - only when ARCHIVE-9 was addressed by a human, on the home server (never in an unprompted intervention, never for a bot);
 - at most 5 per action type over a sliding hour;
-- never on the owner, admins (Administrator or Manage Server), bots, opted-out members or members above ARCHIVE-9;
-- roles: never `@everyone`, integration roles, roles at or above ARCHIVE-9's, or roles with a moderation or management permission.
+- the requester needs the matching Discord permission (Manage Channels, Manage Nicknames or Change Nickname for themselves, Manage Roles, Pin Messages);
+- Discord's hierarchy: the requester's top role must be above the target member's, and above the role given or removed; never on the owner, bots or opted-out members;
+- roles: never `@everyone`, integration roles, or roles with a moderation or management permission.
 
-Every attempt is stored in `actions_log` (done, refused or failed) with the value needed to undo it. Bans, kicks, timeouts, deletions and permission changes have no tool.
+An action that stays inside AGENTS (a channel created, renamed or pinned in it) runs right away, without the permission check. Anything else (nicknames, roles, other channels) is posted with **Confirmer** / **Annuler** buttons that only the requester can use, for 10 minutes; all checks run again on confirmation.
+
+Every attempt is stored in `actions_log` (pending, done, refused, failed, cancelled, undone) with the value needed to undo it. Bans, kicks, timeouts, deletions and permission changes have no tool.
 
 ### Skills
 
@@ -120,6 +124,7 @@ Each task has an ordered chain of `provider:model`, overridable with `AI_ROUTE_*
 - OpenRouter requests use `data_collection: "deny"`, fp8 or better quantisation, and the upstream order from `OPENROUTER_PROVIDER_ORDER`.
 - A model is skipped while it cools down after a 429 (`retry-after` or Groq reset headers), a 402, a 5xx or a network error, or when its remaining minute token budget is below the request estimate.
 - When a fallback model answers, `-# noyau-<model>` is appended to the message (`/config mention-secours`).
+- `REPLY_DAILY_BUDGET_USD` (default 1) caps reply costs over 24 h. Past it, only humans who addressed ARCHIVE-9 get an answer, from free models only (Groq, OpenRouter `:free`).
 - When every model fails and the bot was addressed, it answers with a pre-written line, without AI.
 - Every call is stored in `ai_usage` with tokens, cost, upstream provider and the Discord messages it produced.
 
@@ -192,11 +197,13 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 | `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
 | `/skills [supprimer]` | everyone | list the skills (author, triggers, use count); delete one (own, or any for an admin) |
 | `/actions` | Manage Server | last 10 controlled actions, with an undo button for each |
+
+Guild commands are registered at start-up and again whenever the bot joins the server.
 | Diagnostic (message menu) | everyone | model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |
 
 ### Spontaneity
 
-Unprompted interventions depend on `/config spontaneite`:
+Unprompted interventions (only in AGENTS) depend on `/config spontaneite`:
 
 | Level | Interest threshold | Max per channel per hour |
 |---|---|---|
@@ -221,7 +228,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `relationship_events` | history of relationship changes |
 | `self_state_versions` | ARCHIVE-9's evolving state, one version per row |
 | `skills` | rules taught by members: name, kind (`permanent` or `triggered`), triggers, author, use count |
-| `actions_log` | Discord actions: tool, tier, status (done, refused, failed, undone), refusal reason, value before the change, undo |
+| `actions_log` | Discord actions: tool, tier, status (pending, done, refused, failed, cancelled, undone), refusal reason, value before the change, undo |
 | `ai_usage` | AI calls: task, model, provider, tokens, cost, duration, triage reason or tools used, produced messages |
 | `settings` | settings editable at runtime |
 

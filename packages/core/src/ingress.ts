@@ -24,9 +24,22 @@ export interface IngressContext {
   spontaneity: number;
   /** ARCHIVE-9 spoke in this channel moments ago, so a follow-up may be meant for it. */
   inActiveConversation: boolean;
+  /**
+   * The AGENTS category, where bots may do anything. Elsewhere on the server, the rule is
+   * an explicit @mention or a reply to one of its messages, and nothing else.
+   */
+  inAgents: boolean;
 }
 
-export type IgnoreReason = "self" | "paused" | "opted_out" | "not_listened" | "foreign_bot" | "trivial" | "observer_mode";
+export type IgnoreReason =
+  | "self"
+  | "paused"
+  | "opted_out"
+  | "not_listened"
+  | "foreign_bot"
+  | "outside_agents"
+  | "trivial"
+  | "observer_mode";
 
 export type IngressDecision =
   | { action: "ignore"; reason: IgnoreReason }
@@ -42,6 +55,9 @@ export function decideIngress(msg: IncomingMessage, ctx: IngressContext): Ingres
   if (msg.authorIsBot && !msg.authorIsKnownAiBot) return { action: "ignore", reason: "foreign_bot" };
 
   const fromBot = msg.authorIsBot;
+  if (!msg.isDm && !ctx.inAgents) {
+    return !fromBot && (msg.mentionsSelf || msg.repliesToSelf) ? { action: "reply", fromBot } : { action: "ignore", reason: "outside_agents" };
+  }
   const addressed = msg.isDm || msg.mentionsSelf || msg.namesSelf || msg.repliesToSelf || msg.continuesExchange;
   if (addressed) return { action: "reply", fromBot };
 

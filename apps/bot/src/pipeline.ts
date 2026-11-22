@@ -10,6 +10,7 @@ import {
   type UsageRecord,
 } from "@archive-9/ai";
 import {
+  AGENTS_BOT_LOOP_LIMITS,
   AmbientBudget,
   BotLoopGuard,
   KeyedDebouncer,
@@ -22,6 +23,7 @@ import {
 } from "@archive-9/core";
 import {
   activeSkills,
+  aiCostSince,
   currentSelfState,
   lastMessageAt,
   memberContexts,
@@ -39,6 +41,7 @@ import {
 import type { Message, SendableChannels } from "discord.js";
 import { createSendTools, type SendState } from "./discord/send-tools.ts";
 import { keepTyping } from "./discord/typing.ts";
+import { isInAgents } from "./discord/zone.ts";
 import { loadServerContext, type ServerSource } from "./learning/server.ts";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
@@ -55,6 +58,8 @@ export interface PipelineDeps {
   softAliases: string[];
   timezone: string;
   server: ServerSource;
+  agentsCategoryId: string | null;
+  replyDailyBudgetUsd: number;
 }
 
 const TRIAGE_WINDOW = 10;
@@ -66,6 +71,7 @@ const SHORT_MEMORY_MESSAGES = 10;
 const DIRECTORY_TTL_MS = 10 * 60_000;
 /** People tagged or named in the conversation whose profile is added to the reply prompt. */
 const MAX_MENTIONED = 5;
+const DAY_MS = 24 * 60 * 60_000;
 
 interface Directory {
   loadedAt: number;
@@ -112,7 +118,9 @@ export class Pipeline {
   private readonly namesSelf: (content: string) => boolean;
   private readonly softNamesSelf: (content: string) => boolean;
   private readonly ambientBudget = new AmbientBudget();
-  private readonly loopGuard = new BotLoopGuard();
+  // Bots only reach a reply in AGENTS (or DM), so the AGENTS limits are the only ones needed.
+  private readonly loopGuard = new BotLoopGuard(AGENTS_BOT_LOOP_LIMITS);
+  private budgetWarnedAt = 0;
   private readonly busyChannels = new Set<string>();
   private readonly pending = new Map<string, Message>();
   private readonly lastExchange = new Map<string, Exchange>();
@@ -163,6 +171,7 @@ export class Pipeline {
         continuesExchange,
       },
       {
+        inAgents: isInAgents(message.channel, this.deps.agentsCategoryId),
         paused: settings.value.paused,
         authorOptedOut: optedOut,
         channelListened: settings.isListened(message.channelId, parentIdOf(message)),
@@ -280,6 +289,16 @@ export class Pipeline {
     try {
       const { db, ai, selfId, settings, log } = this.deps;
       const isDm = target.guildId === null;
+      const inAgents = isInAgents(target.channel, this.deps.agentsCategoryId);
+      const spent = await aiCostSince(db, ["reply"], new Date(Date.now() - DAY_MS));
+      const overBudget = spent >= this.deps.replyDailyBudgetUsd;
+      if (overBudget) {
+        if (Date.now() - this.budgetWarnedAt > 60 * 60_000) {
+          this.budgetWarnedAt = Date.now();
+          log.warn({ spent, budget: this.deps.replyDailyBudgetUsd }, "reply budget spent: humans only, free models only");
+        }
+        if (!run.addressed || target.author.bot) return false;
+      }
       const history = isDm
         ? [...(await target.channel.messages.fetch({ limit: REPLY_WINDOW })).values()].map((m) => toTranscript(m, selfId))
         : await recentMessages(db, target.channelId, selfId, REPLY_WINDOW);
@@ -297,6 +316,7 @@ export class Pipeline {
           timezone: this.deps.timezone,
           channelName: "name" in target.channel ? target.channel.name : null,
           isDm,
+          inAgents,
           addressed: run.addressed,
           targetId: target.id,
           targetAuthorId: target.author.id,
@@ -321,6 +341,7 @@ export class Pipeline {
             send,
             selfId,
             guildId: this.deps.server.id,
+            agentsCategoryId: this.deps.agentsCategoryId,
             addressed: run.addressed,
             timezone: this.deps.timezone,
             names: directory.names,
@@ -329,6 +350,7 @@ export class Pipeline {
             saveUsage: (usage, detail) => this.saveUsage(run.runId, usage, { detail }),
           }),
         }),
+        { freeOnly: overBudget },
       );
 
       if (!outcome.ok) {

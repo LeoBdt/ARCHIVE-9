@@ -5,6 +5,11 @@ import type { ModelResolver, ResolvedModel } from "./models.ts";
 import type { ModelRef } from "./routes.ts";
 import { usageFromError, usageFromResult, type UsageRecord } from "./usage.ts";
 
+/** Groq is used on its free tier; on OpenRouter only `:free` models and the free router cost nothing. */
+export function isPaidModel(ref: ModelRef): boolean {
+  return ref.provider === "openrouter" && !ref.model.endsWith(":free") && ref.model !== "openrouter/free";
+}
+
 export type Routes = Record<AiTask, ModelRef[]>;
 
 interface CallResult {
@@ -22,6 +27,8 @@ export interface GenerateOptions {
   estimatedTokens?: number;
   /** Returns false when the result is unusable (e.g. invalid output) to try the next model. */
   accept?: (result: CallResult) => boolean;
+  /** Only free models: the daily budget for this task is spent. */
+  freeOnly?: boolean;
 }
 
 /** Runs AI tasks over their fallback chain, skipping models that are cooling down. */
@@ -51,6 +58,10 @@ export class AiRuntime {
     let firstProblem: string | null = null;
 
     for (const [index, ref] of this.routes[task].entries()) {
+      if (options.freeOnly && isPaidModel(ref)) {
+        firstProblem ??= `${ref.id} budget_spent`;
+        continue;
+      }
       const blocked = this.tracker.blockedReason(ref.id, options.estimatedTokens);
       if (blocked) {
         firstProblem ??= `${ref.id} ${blocked}`;

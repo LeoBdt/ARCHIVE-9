@@ -33,6 +33,7 @@ import { truncate } from "@archive-9/core";
 import { SKILL_LIMITS, SPONTANEITY_LEVELS, spontaneity } from "@archive-9/core";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
+import { handleConfirmation } from "./tools/confirm.ts";
 import { SKILL_CHECK_DETAIL } from "./tools/skills.ts";
 import { undoAction } from "./tools/undo.ts";
 
@@ -87,6 +88,7 @@ export interface CommandDeps {
   log: Logger;
   selfId: string;
   guildId: string;
+  agentsCategoryId: string | null;
 }
 
 function onOff(value: boolean): string {
@@ -341,6 +343,11 @@ async function undo(i: ButtonInteraction, deps: CommandDeps, actionId: string) {
 }
 
 async function onButton(i: ButtonInteraction, deps: CommandDeps) {
+  const [kind = "", id = ""] = i.customId.split(":");
+  if (kind === "confirm" || kind === "reject") {
+    await handleConfirmation(i, deps, kind === "confirm", id);
+    return;
+  }
   if (i.customId.startsWith("undo:")) {
     await undo(i, deps, i.customId.slice("undo:".length));
     return;
