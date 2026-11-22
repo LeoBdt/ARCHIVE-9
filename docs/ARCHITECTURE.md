@@ -17,7 +17,7 @@ flowchart LR
 | `postgres` | `postgres:18-alpine` | 1 GB | database, on an internal network with no internet access |
 | `bot` | `ghcr.io/<owner>/archive-9-bot` | 384 MB | Discord process |
 | `backup` | `postgres:18-alpine` | 64 MB | `pg_dump` at startup then every 24 h, keeps `BACKUP_KEEP_DAYS` days |
-| `wud` | `getwud/wud:9` | 128 MB | updates `bot` when a new image is published |
+| `wud` | `getwud/wud:9` | 128 MB | watches every service; recreates only `bot` when a new image is published, the others only show available updates |
 
 Postgres settings: `shared_buffers=256MB`, `effective_cache_size=640MB`, `work_mem=4MB`, `maintenance_work_mem=64MB`, `max_connections=30`.
 

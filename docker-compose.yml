@@ -27,6 +27,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    labels:
+      - wud.watch=true
+      - wud.watch.digest=true
     mem_limit: 1g
     networks: [db]
 
@@ -76,6 +79,9 @@ services:
         done
     volumes:
       - backups:/backups
+    labels:
+      - wud.watch=true
+      - wud.watch.digest=true
     mem_limit: 64m
     networks: [db]
 
@@ -91,10 +97,13 @@ services:
       WUD_AUTH_ADMIN_PASSWORD: ${WUD_ADMIN_PASSWORD}
       WUD_AUTH_SESSION_SECRET: ${WUD_SESSION_SECRET}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
       - wud:/store
     ports:
       - ${WUD_PORT:-3000}:3000
+    labels:
+      - wud.watch=true
+      - wud.watch.digest=true
     mem_limit: 128m
     networks: [egress]
 
