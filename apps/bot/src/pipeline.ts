@@ -47,6 +47,14 @@ export interface PipelineDeps {
 
 const TRIAGE_WINDOW = 10;
 const REPLY_WINDOW = 20;
+const ACTIVE_CONVERSATION_MS = 3 * 60_000;
+const DIRECT_FOLLOW_UP_MS = 2 * 60_000;
+
+interface Exchange {
+  at: number;
+  withAuthorId: string;
+  interrupted: boolean;
+}
 
 function channelOf(message: Message): SendableChannels | null {
   return message.channel.isSendable() ? message.channel : null;
@@ -76,6 +84,7 @@ export class Pipeline {
   private readonly loopGuard = new BotLoopGuard();
   private readonly busyChannels = new Set<string>();
   private readonly pending = new Map<string, Message>();
+  private readonly lastExchange = new Map<string, Exchange>();
   private readonly debouncer: KeyedDebouncer;
 
   constructor(deps: PipelineDeps) {
@@ -94,6 +103,13 @@ export class Pipeline {
     const { settings, selfId, knownAiBotIds } = this.deps;
     const isDm = message.guildId === null;
     if (!message.author.bot) this.loopGuard.onHumanMessage(message.channelId);
+    const exchange = this.lastExchange.get(message.channelId);
+    const continuesExchange =
+      exchange !== undefined &&
+      !exchange.interrupted &&
+      exchange.withAuthorId === message.author.id &&
+      Date.now() - exchange.at < DIRECT_FOLLOW_UP_MS;
+    if (exchange && message.author.id !== selfId && message.author.id !== exchange.withAuthorId) exchange.interrupted = true;
 
     const optedOut = (await optedOutIds(this.deps.db, [message.author.id])).has(message.author.id);
     const decision = decideIngress(
@@ -106,12 +122,14 @@ export class Pipeline {
         mentionsSelf: message.mentions.users.has(selfId),
         namesSelf: this.namesSelf(message.content),
         repliesToSelf: message.mentions.repliedUser?.id === selfId,
+        continuesExchange,
       },
       {
         paused: settings.value.paused,
         authorOptedOut: optedOut,
         channelListened: settings.isListened(message.channelId, parentIdOf(message)),
         ambientReplies: settings.value.ambientReplies,
+        inActiveConversation: Date.now() - (exchange?.at ?? 0) < ACTIVE_CONVERSATION_MS,
       },
     );
 
@@ -227,6 +245,7 @@ export class Pipeline {
       });
 
       if (send.sentMessageIds.length > 0 || send.reacted) {
+        this.lastExchange.set(target.channelId, { at: Date.now(), withAuthorId: target.author.id, interrupted: false });
         await recordInteraction(db, target.author.id);
         if (target.author.bot) this.loopGuard.recordReplyToBot(target.channelId);
       }

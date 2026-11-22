@@ -10,6 +10,7 @@ const msg = (over: Partial<IncomingMessage> = {}): IncomingMessage => ({
   mentionsSelf: false,
   namesSelf: false,
   repliesToSelf: false,
+  continuesExchange: false,
   ...over,
 });
 
@@ -18,6 +19,7 @@ const ctx = (over: Partial<IngressContext> = {}): IngressContext => ({
   authorOptedOut: false,
   channelListened: true,
   ambientReplies: true,
+  inActiveConversation: false,
   ...over,
 });
 
@@ -39,6 +41,7 @@ describe("decideIngress", () => {
     ["name", msg({ namesSelf: true })],
     ["reply", msg({ repliesToSelf: true })],
     ["DM", msg({ isDm: true })],
+    ["direct follow-up", msg({ continuesExchange: true, content: "je suis ému" })],
     ["mention with emoji only", msg({ mentionsSelf: true, content: "<@1> 👋" })],
   ])("always replies when addressed: %s", (_label, m) => {
     expect(decideIngress(m, ctx({ ambientReplies: false }))).toEqual({ action: "reply", fromBot: false });
@@ -46,6 +49,10 @@ describe("decideIngress", () => {
 
   it("answers DMs even though they are not a listened channel", () => {
     expect(decideIngress(msg({ isDm: true }), ctx({ channelListened: false }))).toEqual({ action: "reply", fromBot: false });
+  });
+
+  it("triages follow-ups in observer mode while a conversation is active", () => {
+    expect(decideIngress(msg(), ctx({ ambientReplies: false, inActiveConversation: true }))).toEqual({ action: "triage", fromBot: false });
   });
 
   it("sends ambient messages to triage", () => {

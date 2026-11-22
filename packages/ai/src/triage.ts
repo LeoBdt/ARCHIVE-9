@@ -24,7 +24,7 @@ export const TRIAGE_SYSTEM = `Tu décides si ARCHIVE-9, une IA présente sur un 
 
 ARCHIVE-9 n'est pas convié par défaut. Réponds reply=true seulement si :
 - quelqu'un lui parle ou parle de lui de façon à attendre une réaction ;
-- on répond à son dernier message ;
+- on répond à son dernier message ou on enchaîne avec lui juste après qu'il a parlé (réaction à ce qu'il vient de dire, question de suivi, même sans le mentionner) ;
 - une question est posée au groupe et il a quelque chose de vraiment utile ou drôle à apporter ;
 - un autre bot lui adresse la parole.
 

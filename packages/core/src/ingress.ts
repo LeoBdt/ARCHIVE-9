@@ -9,6 +9,8 @@ export interface IncomingMessage {
   mentionsSelf: boolean;
   namesSelf: boolean;
   repliesToSelf: boolean;
+  /** Same person ARCHIVE-9 just answered, with nobody else speaking in between. */
+  continuesExchange: boolean;
 }
 
 export interface IngressContext {
@@ -16,6 +18,8 @@ export interface IngressContext {
   authorOptedOut: boolean;
   channelListened: boolean;
   ambientReplies: boolean;
+  /** ARCHIVE-9 spoke in this channel moments ago, so a follow-up may be meant for it. */
+  inActiveConversation: boolean;
 }
 
 export type IgnoreReason =
@@ -41,10 +45,10 @@ export function decideIngress(msg: IncomingMessage, ctx: IngressContext): Ingres
   if (msg.authorIsBot && !msg.authorIsKnownAiBot) return { action: "ignore", reason: "foreign_bot" };
 
   const fromBot = msg.authorIsBot;
-  const addressed = msg.isDm || msg.mentionsSelf || msg.namesSelf || msg.repliesToSelf;
+  const addressed = msg.isDm || msg.mentionsSelf || msg.namesSelf || msg.repliesToSelf || msg.continuesExchange;
   if (addressed) return { action: "reply", fromBot };
 
   if (isTrivialContent(msg.content)) return { action: "ignore", reason: "trivial" };
-  if (!ctx.ambientReplies) return { action: "ignore", reason: "observer_mode" };
+  if (!ctx.ambientReplies && !ctx.inActiveConversation) return { action: "ignore", reason: "observer_mode" };
   return { action: "triage", fromBot };
 }
