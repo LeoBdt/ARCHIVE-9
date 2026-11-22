@@ -33,8 +33,9 @@ describe.skipIf(!url)("site server", () => {
     await syncGuildMembers(conn.db, [member(OWNER, "leo"), member(MEMBER, "tom")]);
     await saveMessage(conn.db, { id: "m1", guildId: "g", channelId: "c", authorId: MEMBER, content: "salut", replyToId: null, mentionedIds: [], createdAt: new Date() });
     const dir = await mkdtemp(join(tmpdir(), "a9-web-"));
-    await writeFile(join(dir, "index.html"), "<!doctype html><title>ARCHIVE-9</title>");
-    app = createApp({ db: conn.db, auth: fakeAuth, ownerId: OWNER, clientDir: dir });
+    await writeFile(join(dir, "index.html"), "<!doctype html><head><!--link-preview--><title>ARCHIVE-9</title></head>");
+    await writeFile(join(dir, "og.png"), "png");
+    app = createApp({ db: conn.db, auth: fakeAuth, ownerId: OWNER, clientDir: dir, siteUrl: "https://archive.example.org" });
   });
 
   afterAll(async () => {
@@ -52,6 +53,15 @@ describe.skipIf(!url)("site server", () => {
     expect(page.headers.get("x-robots-tag")).toContain("noindex");
     expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
     expect(page.headers.get("x-frame-options")).toBe("DENY");
+  });
+
+  it("lets Discord preview the home page, and only that", async () => {
+    expect(ROBOTS_TXT).toMatch(/User-agent: Discordbot\nAllow: \/\$\nAllow: \/og\.png\nDisallow: \//);
+    expect(ROBOTS_TXT.endsWith("User-agent: *\nDisallow: /\n")).toBe(true);
+    const home = await (await get("/")).text();
+    expect(home).toContain('<meta property="og:image" content="https://archive.example.org/og.png" />');
+    expect(home).not.toContain("link-preview");
+    expect((await get("/og.png")).status).toBe(200);
   });
 
   it("serves the client for its own routes", async () => {

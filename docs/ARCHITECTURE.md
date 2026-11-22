@@ -197,12 +197,13 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 
 `apps/web`: a Hono server (API, Better Auth, the built client) and a React client built by Vite. Pixel art look: Silkscreen and JetBrains Mono, served by the site itself.
 
-- **Access**: Discord login with the `identify` scope only. Better Auth needs an email, so the user row gets `<discord id>@discord.invalid`; OAuth tokens are dropped before they are stored. A session is only created for someone the bot sees on the server, and every API call checks it again: leaving the server closes the site at once.
+- **Access**: Discord login with the `identify` scope only. Better Auth needs an email, so the user row gets `<discord id>@discord.invalid`, and the Discord ID is read back from it (an `input: false` field can't come from the profile). OAuth tokens are dropped before they are stored. The whole login is tested end to end against a fake Discord. A session is only created for someone the bot sees on the server, and every API call checks it again: leaving the server closes the site at once.
 - **Who is on the server**: the bot syncs `members.in_guild` from the guild member list at start-up, then on every join and leave.
 - **Admins**: `SITE_OWNER_ID` is always admin; the other admins are in `site_admins`.
 - **Database**: the site connects as `archive9_web`, created by the bot after its migrations from `WEB_DB_PASSWORD`. It can read every table but only write its login tables and `site_admins`. The site never migrates.
 - **Security**: strict Content-Security-Policy (`'self'` only), HSTS, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `HttpOnly` / `Secure` / `SameSite=Lax` cookies, Better Auth origin checks and rate limit, client IP from `CF-Connecting-IP`.
-- **Not indexed**: `robots.txt` disallows everything, every response has `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`, and the page has the matching `meta robots`.
+- **Not indexed**: `robots.txt` disallows everything except the home page and its preview image for `Discordbot`; every response has `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`, and the page has the matching `meta robots`.
+- **Link preview**: Open Graph tags built from `SITE_URL` when the page is served, with a 1200×630 card. The card, favicon and touch icon are drawn from the sprite by `apps/web/scripts/icons.ts`.
 - **Network**: no published port. The `tunnel` service (`cloudflared`, pinned version) reaches `web:3000`; the Cloudflare public hostname points there.
 - **Pages so far**: login (« Accès au noyau »), a start-up sequence played once per session, and the home page (sprite, status, version, mood, counters, most consulted profiles, latest events, skills), refreshed every 30 s. Other sections show a placeholder.
 

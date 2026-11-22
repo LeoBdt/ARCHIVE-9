@@ -1,4 +1,4 @@
 {
   "extends": "@archive-9/config/tsconfig.base.json",
-  "include": ["src/server", "vite.config.ts"]
+  "include": ["src/server", "scripts", "vite.config.ts"]
 }

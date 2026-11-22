@@ -1,6 +1,5 @@
 import { schema, siteViewer, type Database } from "@archive-9/db";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { eq } from "drizzle-orm";
 import type { WebEnv } from "./env.ts";
@@ -11,6 +10,17 @@ const DAY_S = 24 * 60 * 60;
 export async function canEnter(db: Database, discordId: string): Promise<boolean> {
   const viewer = await siteViewer(db, discordId);
   return viewer?.inGuild === true;
+}
+
+const PLACEHOLDER_DOMAIN = "discord.invalid";
+
+/**
+ * The Discord ID, read back from the placeholder email. `discordId` can't come from the
+ * profile itself: Better Auth drops `input: false` fields from it, and that flag is what
+ * stops anyone from changing their ID through the API.
+ */
+export function discordIdFromEmail(email: string): string | null {
+  return /^(\d{17,20})@discord\.invalid$/.exec(email)?.[1] ?? null;
 }
 
 /** No OAuth token is kept: Discord only proves who someone is. */
@@ -29,7 +39,8 @@ export function createAuth(db: Database, env: WebEnv) {
       provider: "pg",
       schema: { user: schema.webUser, session: schema.webSession, account: schema.webAccount, verification: schema.webVerification },
     }),
-    user: { additionalFields: { discordId: { type: "string", required: true, unique: true, input: false } } },
+    // Filled by the user.create hook below; the database still requires it.
+    user: { additionalFields: { discordId: { type: "string", required: false, unique: true, input: false } } },
     emailAndPassword: { enabled: false },
     socialProviders: {
       discord: {
@@ -40,10 +51,9 @@ export function createAuth(db: Database, env: WebEnv) {
         scope: ["identify"],
         mapProfileToUser: (profile) => ({
           name: profile.global_name ?? profile.username,
-          email: `${profile.id}@discord.invalid`,
+          email: `${profile.id}@${PLACEHOLDER_DOMAIN}`,
           emailVerified: false,
           image: undefined,
-          discordId: profile.id,
         }),
       },
     },
@@ -62,9 +72,10 @@ export function createAuth(db: Database, env: WebEnv) {
       user: {
         create: {
           before: async (user) => {
-            const discordId = (user as { discordId?: string }).discordId ?? "";
-            if (!(await canEnter(db, discordId))) throw new APIError("FORBIDDEN", { message: "not_in_guild" });
-            return { data: user };
+            const discordId = discordIdFromEmail(user.email);
+            // false cancels the sign-up: Better Auth sends the person back to the error page.
+            if (!discordId || !(await canEnter(db, discordId))) return false;
+            return { data: { ...user, discordId } };
           },
         },
       },
@@ -72,7 +83,7 @@ export function createAuth(db: Database, env: WebEnv) {
         create: {
           before: async (session) => {
             const [user] = await db.select({ discordId: schema.webUser.discordId }).from(schema.webUser).where(eq(schema.webUser.id, session.userId));
-            if (!user || !(await canEnter(db, user.discordId))) throw new APIError("FORBIDDEN", { message: "not_in_guild" });
+            if (!user || !(await canEnter(db, user.discordId))) return false;
             return { data: session };
           },
         },
