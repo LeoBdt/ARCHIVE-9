@@ -71,7 +71,7 @@ export function Relations() {
           <h2 id="fichier" style={{ fontSize: 18 }}>
             Le fichier
           </h2>
-          <span style={{ fontSize: 12, color: "var(--faint)" }}>un tiroir par degré de proximité</span>
+
         </div>
         <Cabinet drawers={drawers} />
       </section>

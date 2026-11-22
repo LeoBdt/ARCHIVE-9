@@ -38,7 +38,7 @@ export function Memory() {
           <h2 id="resolutions" style={{ fontSize: 20, color: "var(--red)" }}>
             Mes résolutions
           </h2>
-          <span style={{ fontSize: 12, color: "var(--faint)" }}>ce que j'ai décidé de changer chez moi, après vos retours · {resolutions.length} sur 8</span>
+          <span style={{ fontSize: 12, color: "var(--faint)" }}>{resolutions.length} sur 8</span>
         </div>
         {resolutions.length === 0 ? (
           <p className="empty">Aucune pour l'instant. Personne ne s'est plaint, ou je n'ai pas encore réfléchi.</p>
@@ -79,7 +79,7 @@ export function Memory() {
       <section aria-labelledby="pending" className="panel px-dim">
         <div className="section-head">
           <h2 id="pending">Ce qu'on m'a reproché</h2>
-          <span style={{ fontSize: 12, color: "var(--faint)" }}>j'en tiens déjà compte · je les relis le soir</span>
+          <span style={{ fontSize: 12, color: "var(--faint)" }}>Je les relis ce soir.</span>
         </div>
         {data.pending.length === 0 ? (
           <p className="empty">Rien en attente.</p>
@@ -100,7 +100,7 @@ export function Memory() {
       <section aria-labelledby="histoire" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="section-head">
           <h2 id="histoire">Mon histoire</h2>
-          <span style={{ fontSize: 12, color: "var(--faint)" }}>une version de moi par soir</span>
+
         </div>
         <ol className="timeline">
           {data.history.map((v, i) => (
