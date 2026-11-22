@@ -49,6 +49,14 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
       OPENROUTER_PROVIDER_ORDER: ${OPENROUTER_PROVIDER_ORDER:-baidu,deepinfra,alibaba}
       BOT_TIMEZONE: ${BOT_TIMEZONE:-Europe/Paris}
+      # No value: passed only when set in .env, so the bot's defaults apply otherwise
+      # (an empty string would override them)
+      BOT_ALIASES:
+      BOT_SOFT_ALIASES:
+      AI_ROUTE_TRIAGE:
+      AI_ROUTE_REPLY:
+      AI_ROUTE_ANALYSIS:
+      AI_ROUTE_REFLECTION:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     labels:
       - wud.watch=true
