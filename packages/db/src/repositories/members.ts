@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { members } from "../schema.ts";
 
@@ -51,6 +51,30 @@ export async function ensureServerProfile(db: Database, guildId: string, name: s
     .insert(members)
     .values({ id: guildId, username: name, isServer: true, nameHistory: [{ name, seenAt: new Date().toISOString() }] })
     .onConflictDoUpdate({ target: members.id, set: { username: name, isServer: true } });
+}
+
+export interface DirectoryMember {
+  id: string;
+  name: string;
+  isBot: boolean;
+  /** Current and former names, to recognise people mentioned without a tag. */
+  names: string[];
+}
+
+/** Every member and known bot ARCHIVE-9 may talk about. Opted-out members and the server row are left out. */
+export async function memberDirectory(db: Database): Promise<DirectoryMember[]> {
+  const rows = await db
+    .select()
+    .from(members)
+    .where(and(isNull(members.optedOutAt), eq(members.isServer, false)));
+  return rows
+    .filter((row) => !row.isBot || row.isKnownAiBot)
+    .map((row) => ({
+      id: row.id,
+      name: row.displayName ?? row.username,
+      isBot: row.isBot,
+      names: [...new Set([row.displayName, row.username, ...row.nameHistory.map((entry) => entry.name)].filter((n): n is string => Boolean(n)))],
+    }));
 }
 
 export async function optedOutIds(db: Database, ids: string[]): Promise<Set<string>> {

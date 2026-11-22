@@ -5,6 +5,7 @@ import {
   applyAnalysis,
   currentSelfState,
   factsSince,
+  memberNames,
   messagesSince,
   notify,
   recordAiUsage,
@@ -62,13 +63,16 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     factsSince(db, since, config.facts),
     mode === "evening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
   ]);
+  const picked = pickConversations(messages, config.maxMessages, mode);
+  const people = new Set(picked.flat().flatMap((m) => [m.authorId, ...m.mentionedIds]));
   const outcome = await reflect(ai, {
     mode,
+    names: await memberNames(db, [...people]),
     now: new Date(),
     timezone: deps.timezone,
     server,
     state,
-    conversations: pickConversations(messages, config.maxMessages, mode).map((c) => ({
+    conversations: picked.map((c) => ({
       channelName: c[0]?.guildId === null ? "message privé" : deps.channelName(c[0]?.channelId ?? ""),
       messages: c,
     })),

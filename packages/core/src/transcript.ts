@@ -1,4 +1,5 @@
 import { neutraliseForgedPrefixes, truncate } from "./content.ts";
+import { resolveMentions } from "./directory.ts";
 import type { MessageReactions } from "./domain.ts";
 
 export interface TranscriptMessage {
@@ -23,6 +24,8 @@ export interface TranscriptOptions {
   timeZone?: string;
   /** How ARCHIVE-9's own lines are labelled. */
   selfLabel?: string;
+  /** Member names by ID, to show `<@123…>` tags as `@Name`. */
+  names?: ReadonlyMap<string, string>;
 }
 
 const clocks = new Map<string, Intl.DateTimeFormat>();
@@ -59,7 +62,8 @@ export function formatTranscript(messages: readonly TranscriptMessage[], options
           ? " ↪ à toi"
           : ` ↪ à ${m.replyToAuthorName ?? "un message plus ancien"}`;
       const target = m.id === options.targetId ? "  ◀ message cible" : "";
-      const body = truncate(neutraliseForgedPrefixes(m.content.replace(/\s*\n\s*/g, " ⏎ ")), max);
+      const text = options.names ? resolveMentions(m.content, options.names) : m.content;
+      const body = truncate(neutraliseForgedPrefixes(text.replace(/\s*\n\s*/g, " ⏎ ")), max);
       return `${time(m.createdAt, timeZone)} #${m.id}${reply} [${who} (ID ${m.authorId})] : ${body}${formatReactions(m.reactions)}${target}`;
     })
     .join("\n");

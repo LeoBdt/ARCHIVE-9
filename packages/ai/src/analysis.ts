@@ -166,7 +166,8 @@ function describeParticipant(p: AnalysisParticipant, refOf: Map<string, string>)
 
 export function buildAnalysisPrompt(input: AnalysisInput): string {
   const refOf = new Map([...factRefs(input.participants)].map(([ref, fact]) => [fact.id, ref]));
-  const options = { timeZone: input.timezone, selfLabel: "ARCHIVE-9", maxContentLength: 600 };
+  const names = new Map(input.participants.map((p) => [p.id, p.name]));
+  const options = { timeZone: input.timezone, selfLabel: "ARCHIVE-9", maxContentLength: 600, names };
   const conversations = input.conversations.map((c, index) => {
     const first = c.messages[0]?.createdAt ?? new Date(0);
     const day = first.toLocaleDateString("fr-FR", { timeZone: input.timezone, dateStyle: "full" });

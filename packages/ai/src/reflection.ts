@@ -23,6 +23,8 @@ export interface ReflectionInput {
   now: Date;
   timezone: string;
   server?: ServerContext;
+  /** Member names by ID, to show tags as `@Name`. */
+  names?: ReadonlyMap<string, string>;
   state: SelfState;
   conversations: { channelName: string | null; messages: TranscriptMessage[] }[];
   learned: { name: string; nature: FactNature; content: string }[];
@@ -102,7 +104,7 @@ function numbered(items: readonly string[]): string {
 
 export function buildReflectionPrompt(input: ReflectionInput): string {
   const day = input.now.toLocaleDateString("fr-FR", { timeZone: input.timezone, dateStyle: "full" });
-  const options = { timeZone: input.timezone, maxContentLength: 250 };
+  const options = { timeZone: input.timezone, maxContentLength: 250, names: input.names };
   const conversations = input.conversations
     .map((c) => {
       const date = c.messages[0]?.createdAt.toLocaleDateString("fr-FR", { timeZone: input.timezone, day: "numeric", month: "long" });

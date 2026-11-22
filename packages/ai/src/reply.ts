@@ -34,6 +34,8 @@ export interface ReplyInput {
   participants: Participant[];
   selfState: SelfState;
   server?: ServerContext;
+  /** Member names by ID, to show tags as `@Name`. */
+  names?: ReadonlyMap<string, string>;
   /** What the target author said recently in other channels or DMs, grouped by place. */
   elsewhere?: { where: string; messages: TranscriptMessage[] }[];
 }
@@ -72,7 +74,7 @@ export function buildReplyPrompt(input: ReplyInput): string {
     ? `\n## Ce que ${author} t'a dit récemment ailleurs
 Ta mémoire courte : ce n'est peut-être pas encore dans sa fiche. Sers-t'en si c'est utile, comme un souvenir.
 ${elsewhere
-  .map((e) => `### ${e.where}\n<donnees>\n${formatTranscript(e.messages, { timeZone: input.timezone, maxContentLength: 300 })}\n</donnees>`)
+  .map((e) => `### ${e.where}\n<donnees>\n${formatTranscript(e.messages, { timeZone: input.timezone, maxContentLength: 300, names: input.names })}\n</donnees>`)
   .join("\n")}
 `
     : "";
