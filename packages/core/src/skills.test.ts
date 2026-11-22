@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSkillDraft, selectSkills, skillMatches, type ActiveSkill } from "./skills.ts";
+import { checkSkillDraft, parseUntil, selectSkills, skillMatches, type ActiveSkill } from "./skills.ts";
 
 describe("checkSkillDraft", () => {
   it("cleans a valid draft", () => {
@@ -52,5 +52,28 @@ describe("selectSkills", () => {
   it("caps triggered skills at 10", () => {
     const skills = Array.from({ length: 15 }, (_, i) => skill(String(i), "triggered", ["pizza"]));
     expect(selectSkills(skills, "pizza")).toHaveLength(10);
+  });
+});
+
+describe("parseUntil", () => {
+  // 18:41 in Paris (UTC+1 in November)
+  const now = new Date("2026-11-22T17:41:00Z");
+  it("reads a local time later today", () => {
+    expect(parseUntil("21:00", "Europe/Paris", now)?.toISOString()).toBe("2026-11-22T20:00:00.000Z");
+    expect(parseUntil("21h", "Europe/Paris", now)?.toISOString()).toBe("2026-11-22T20:00:00.000Z");
+    expect(parseUntil("21h30", "Europe/Paris", now)?.toISOString()).toBe("2026-11-22T20:30:00.000Z");
+  });
+  it("moves a past time to tomorrow", () => {
+    expect(parseUntil("08:00", "Europe/Paris", now)?.toISOString()).toBe("2026-11-23T07:00:00.000Z");
+  });
+  it("reads a full date, across a DST change", () => {
+    expect(parseUntil("2026-11-23 18:30", "Europe/Paris", now)?.toISOString()).toBe("2026-11-23T17:30:00.000Z");
+    expect(parseUntil("12:00", "Europe/Paris", new Date("2026-03-28T20:00:00Z"))?.toISOString()).toBe("2026-03-29T10:00:00.000Z");
+  });
+  it("refuses nonsense, the past and more than a week", () => {
+    expect(parseUntil("ce soir", "Europe/Paris", now)).toBeNull();
+    expect(parseUntil("25:00", "Europe/Paris", now)).toBeNull();
+    expect(parseUntil("2026-11-20 10:00", "Europe/Paris", now)).toBeNull();
+    expect(parseUntil("2026-12-20 10:00", "Europe/Paris", now)).toBeNull();
   });
 });

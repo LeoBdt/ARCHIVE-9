@@ -332,7 +332,10 @@ export class Pipeline {
           elsewhere,
           server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
-          skills,
+          skills: skills.map((k) => ({
+            ...k,
+            until: k.expiresAt?.toLocaleTimeString("fr-FR", { timeZone: this.deps.timezone, hour: "2-digit", minute: "2-digit" }) ?? null,
+          })),
           version: { label: this.deps.version, since: this.deps.startedAt },
         },
         (ref, isFallback) => ({

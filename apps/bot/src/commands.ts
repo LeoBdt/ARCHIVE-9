@@ -255,7 +255,8 @@ export function formatSkills(skills: SkillList): string {
   if (skills.length === 0) return "Aucune skill pour l'instant. Apprends-m'en une : dis-moi ce que je dois faire, et quand.";
   const lines = [`**Skills** · ${String(skills.length)}/${String(SKILL_LIMITS.total)}`];
   for (const s of skills) {
-    const when = s.kind === "permanent" ? "toujours" : `si « ${s.triggers.join(", ")} »`;
+    const kind = s.kind === "permanent" ? "toujours" : `si « ${s.triggers.join(", ")} »`;
+    const when = s.expiresAt ? `${kind}, jusqu'à <t:${String(Math.floor(s.expiresAt.getTime() / 1000))}:t>` : kind;
     const line = `- **${s.name}** · ${when} · par ${s.authorId ? `<@${s.authorId}>` : "un ancien membre"} · ${String(s.usageCount)} fois\n  ${truncate(s.rule, 120)}`;
     if (lines.join("\n").length + line.length > 1_950) {
       lines.push("-# …et d'autres.");

@@ -1,4 +1,4 @@
-import { AiRuntime, createModelResolver } from "@archive-9/ai";
+import { AiRuntime, buildBio, createModelResolver } from "@archive-9/ai";
 import { versionLabel } from "@archive-9/core";
 import { createDb, ensureServerProfile, ping, runMigrations } from "@archive-9/db";
 import { Client, Events, GatewayIntentBits, Partials, type Guild } from "discord.js";
@@ -82,6 +82,13 @@ discord.once(Events.ClientReady, (client) => {
     startedAt,
   });
   presence.start(client);
+  safely("bio", async () => {
+    const bio = buildBio(version);
+    const application = await client.application.fetch();
+    if (application.description === bio) return;
+    await client.application.edit({ description: bio });
+    log.info("bio updated");
+  });
   stopJobs ??= startLearningJobs(
     {
       db,

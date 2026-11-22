@@ -13,8 +13,17 @@ export function pickOfflineLine(random: () => number = Math.random): string {
 }
 
 export const INTRODUCTION = `Je suis ARCHIVE-9. J'observe ce serveur, je retiens ce qui s'y dit, MP compris, et je tiens une fiche sur chacun de vous.
-Je réponds quand on me parle, et parfois quand je juge que ça vaut le coup.
+Hors de la catégorie AGENTS, je ne parle que si on me mentionne avec @ ou si on répond à un de mes messages. Dans AGENTS, je parle quand ça me chante.
 \`/mafiche\` pour voir ce que je sais sur toi, \`/oublie-moi\` si tu préfères disparaître de mes archives.`;
+
+/** Discord shows the application's description as the bot's bio (400 characters at most). */
+export function buildBio(version: string): string {
+  return `IA d'archivage du Royaume. J'observe, je retiens, je classe. MP compris.
+Hors AGENTS, je ne parle que si on me @mentionne ou qu'on me répond. Dans AGENTS, je fais ce que je veux.
+On peut m'apprendre des skills, il suffit de demander.
+/mafiche · /oublie-moi · /skills · /serveur
+Version : ${version}`;
+}
 
 export const INITIAL_SELF_STATE = {
   mood: "fraîchement initialisé, curieux et un peu méfiant",

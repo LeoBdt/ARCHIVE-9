@@ -12,10 +12,12 @@ export interface SkillRow {
   authorId: string | null;
   authorName: string | null;
   usageCount: number;
+  expiresAt: Date | null;
   createdAt: Date;
 }
 
-const active = isNull(skills.deletedAt);
+/** Not deleted, and not past its end for a temporary skill. */
+const active = and(isNull(skills.deletedAt), sql`(${skills.expiresAt} is null or ${skills.expiresAt} > now())`);
 
 /** Every skill in use, oldest first so the order of permanent skills stays stable. */
 export async function activeSkills(db: Database): Promise<SkillRow[]> {
@@ -29,6 +31,7 @@ export async function activeSkills(db: Database): Promise<SkillRow[]> {
       authorId: skills.authorId,
       authorName: sql<string | null>`coalesce(${members.displayName}, ${members.username})`,
       usageCount: skills.usageCount,
+      expiresAt: skills.expiresAt,
       createdAt: skills.createdAt,
     })
     .from(skills)
@@ -50,10 +53,15 @@ export async function skillCounts(db: Database, authorId: string) {
 }
 
 /** Returns the new ID, or null when an active skill already has this name. */
-export async function createSkill(db: Database, draft: SkillDraft, authorId: string): Promise<string | null> {
+export async function createSkill(db: Database, draft: SkillDraft, authorId: string, expiresAt: Date | null = null): Promise<string | null> {
+  // An expired skill still holds its name in the unique index until it is closed.
+  await db
+    .update(skills)
+    .set({ deletedAt: sql`now()`, deletedBy: "expired" })
+    .where(and(isNull(skills.deletedAt), sql`${skills.expiresAt} <= now()`));
   const rows = await db
     .insert(skills)
-    .values({ ...draft, authorId })
+    .values({ ...draft, authorId, expiresAt })
     .onConflictDoNothing()
     .returning({ id: skills.id });
   return rows[0]?.id ?? null;

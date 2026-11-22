@@ -71,3 +71,45 @@ export function selectSkills<S extends ActiveSkill>(skills: readonly S[], conten
     .slice(0, SKILL_LIMITS.injected);
   return [...permanent, ...fired];
 }
+
+/** A temporary skill lasts a week at most. */
+export const SKILL_MAX_TEMPORARY_MS = 7 * 24 * 60 * 60_000;
+
+/** Offset of a time zone at a given instant, in ms (positive east of UTC). */
+function zoneOffset(at: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(at));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")) - (at - (at % 1000));
+}
+
+/**
+ * Reads an end time written by the model in local time: "21:00", "21h", or "2026-11-23 18:30".
+ * A time already past today means tomorrow. Null when unreadable, past, or over a week away.
+ */
+export function parseUntil(text: string, timeZone: string, now: Date): Date | null {
+  const match = /^(?:(\d{4})-(\d{2})-(\d{2})[ T])?(\d{1,2})(?:[:h](\d{2})?)?$/i.exec(text.trim());
+  if (!match) return null;
+  const [, y, mo, d, h = "", mi = "0"] = match;
+  const hour = Number(h);
+  const minute = Number(mi);
+  if (hour > 23 || minute > 59) return null;
+  const local = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone));
+  const day = y ? { y: Number(y), m: Number(mo) - 1, d: Number(d) } : { y: local.getUTCFullYear(), m: local.getUTCMonth(), d: local.getUTCDate() };
+  const toUtc = (dayShift: number) => {
+    const guess = Date.UTC(day.y, day.m, day.d + dayShift, hour, minute);
+    return guess - zoneOffset(guess - zoneOffset(guess, timeZone), timeZone);
+  };
+  let at = toUtc(0);
+  if (!y && at <= now.getTime()) at = toUtc(1);
+  if (at <= now.getTime() || at - now.getTime() > SKILL_MAX_TEMPORARY_MS) return null;
+  return new Date(at);
+}
