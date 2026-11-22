@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { members, messages, profileFacts, profileSummaries, relationships } from "../schema.ts";
 
@@ -18,6 +18,7 @@ export async function profileOverview(db: Database, memberId: string) {
     factCount: facts?.n ?? 0,
     messageCount: msgs?.n ?? 0,
     summary: summary?.summary ?? null,
+    tagline: summary?.tagline ?? null,
     relationship: relation ?? null,
   };
 }
@@ -28,6 +29,12 @@ export async function profileOverview(db: Database, memberId: string) {
  */
 export async function forgetMember(db: Database, memberId: string): Promise<void> {
   await db.transaction(async (tx) => {
+    // Their DM channels go entirely, ARCHIVE-9's answers included.
+    const dms = await tx
+      .selectDistinct({ channelId: messages.channelId })
+      .from(messages)
+      .where(and(eq(messages.authorId, memberId), isNull(messages.guildId)));
+    if (dms.length > 0) await tx.delete(messages).where(inArray(messages.channelId, dms.map((dm) => dm.channelId)));
     await tx.delete(messages).where(eq(messages.authorId, memberId));
     await tx.delete(profileFacts).where(or(eq(profileFacts.memberId, memberId), eq(profileFacts.reportedBy, memberId)));
     await tx.delete(profileSummaries).where(eq(profileSummaries.memberId, memberId));

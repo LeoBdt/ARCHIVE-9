@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "db:generate": "pnpm --filter @archive-9/db generate",
-    "dev:bot": "pnpm --filter @archive-9/bot dev"
+    "dev:bot": "pnpm --filter @archive-9/bot dev",
+    "backfill": "pnpm --filter @archive-9/bot backfill"
   },
   "devDependencies": {
     "@archive-9/config": "workspace:*",

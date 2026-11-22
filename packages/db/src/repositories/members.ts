@@ -36,6 +36,15 @@ export async function upsertMember(db: Database, input: MemberInput): Promise<vo
     });
 }
 
+/** Adds a member seen only in history, leaving an existing row untouched. */
+export async function ensureMember(db: Database, input: MemberInput): Promise<void> {
+  const name = input.displayName ?? input.username;
+  await db
+    .insert(members)
+    .values({ ...input, nameHistory: [{ name, seenAt: new Date().toISOString() }] })
+    .onConflictDoNothing();
+}
+
 export async function optedOutIds(db: Database, ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const rows = await db

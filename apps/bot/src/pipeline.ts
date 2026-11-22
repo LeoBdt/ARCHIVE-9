@@ -24,6 +24,7 @@ import {
   memberContexts,
   optedOutIds,
   recentMessages,
+  recentWithMember,
   recordAiUsage,
   recordInteraction,
   type AiUsageInput,
@@ -51,6 +52,8 @@ const TRIAGE_WINDOW = 10;
 const REPLY_WINDOW = 20;
 const ACTIVE_CONVERSATION_MS = 3 * 60_000;
 const DIRECT_FOLLOW_UP_MS = 2 * 60_000;
+const SHORT_MEMORY_MS = 6 * 60 * 60_000;
+const SHORT_MEMORY_MESSAGES = 10;
 
 interface Exchange {
   at: number;
@@ -182,7 +185,7 @@ export class Pipeline {
       const runId = randomUUID();
       const history = await recentMessages(db, channelId, selfId, TRIAGE_WINDOW);
       const outcome = await triage(ai, {
-        transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300 }),
+        transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300, timeZone: this.deps.timezone }),
         channelName: "name" in target.channel ? target.channel.name : null,
         conversationNote: await this.conversationNote(target),
       });
@@ -258,6 +261,7 @@ export class Pipeline {
       if (!history.some((m) => m.id === target.id)) history.push(toTranscript(target, selfId));
 
       const participants = await this.participants(history, target);
+      const elsewhere = await this.elsewhere(target, history);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
       const outcome = await reply(
         ai,
@@ -270,8 +274,9 @@ export class Pipeline {
           targetId: target.id,
           targetAuthorId: target.author.id,
           triageReason: run.triageReason,
-          transcript: formatTranscript(history, { targetId: target.id }),
+          transcript: formatTranscript(history, { targetId: target.id, timeZone: this.deps.timezone }),
           participants,
+          elsewhere,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
         },
         (ref, isFallback) =>
@@ -329,6 +334,29 @@ export class Pipeline {
       stopTyping();
       this.busyChannels.delete(target.channelId);
     }
+  }
+
+  /** Short memory: what the target author said lately outside this conversation. */
+  private async elsewhere(target: Message, history: TranscriptMessage[]) {
+    const recent = await recentWithMember(this.deps.db, this.deps.selfId, target.author.id, {
+      since: new Date(Date.now() - SHORT_MEMORY_MS),
+      excludeIds: history.map((m) => m.id),
+      limit: SHORT_MEMORY_MESSAGES,
+    });
+    const places = new Map<string, { where: string; messages: TranscriptMessage[] }>();
+    for (const message of recent) {
+      let place = places.get(message.channelId);
+      if (!place) {
+        const channel = target.client.channels.cache.get(message.channelId);
+        const name = channel && "name" in channel ? channel.name : null;
+        const where =
+          message.guildId === null ? "en message privé" : message.channelId === target.channelId ? "plus tôt ici" : `#${name ?? "un autre salon"}`;
+        place = { where, messages: [] };
+        places.set(message.channelId, place);
+      }
+      place.messages.push(message);
+    }
+    return [...places.values()];
   }
 
   private async participants(history: TranscriptMessage[], target: Message): Promise<Participant[]> {

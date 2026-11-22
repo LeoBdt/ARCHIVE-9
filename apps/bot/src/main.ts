@@ -5,6 +5,7 @@ import { COMMANDS, handleInteraction } from "./commands.ts";
 import { parseEnv } from "./env.ts";
 import { startHealthServer } from "./health.ts";
 import { Ingest } from "./ingest.ts";
+import { startLearningJobs } from "./learning/jobs.ts";
 import { createLogger } from "./logger.ts";
 import { Pipeline } from "./pipeline.ts";
 import { SettingsStore } from "./settings.ts";
@@ -15,7 +16,7 @@ const log = createLogger(env.LOG_LEVEL);
 await runMigrations(env.DATABASE_URL);
 log.info("migrations applied");
 
-const { db, close: closeDb } = createDb(env.DATABASE_URL);
+const { db, client: sqlClient, close: closeDb } = createDb(env.DATABASE_URL);
 const settings = await SettingsStore.load(db, { listenedChannelIds: env.LISTENED_CHANNEL_IDS });
 const knownAiBotIds = new Set(env.KNOWN_AI_BOT_IDS);
 
@@ -48,6 +49,7 @@ const discord = new Client({
 
 const ingest = new Ingest({ db, settings, knownAiBotIds });
 let pipeline: Pipeline | undefined;
+let stopJobs: (() => void) | undefined;
 
 const safely = (label: string, task: () => Promise<unknown>) => {
   task().catch((err: unknown) => {
@@ -67,6 +69,25 @@ discord.once(Events.ClientReady, (client) => {
     softAliases: env.BOT_SOFT_ALIASES,
     timezone: env.BOT_TIMEZONE,
   });
+  stopJobs ??= startLearningJobs(
+    {
+      db,
+      client: sqlClient,
+      ai,
+      log,
+      selfId: client.user.id,
+      timezone: env.BOT_TIMEZONE,
+      channelName: (id) => {
+        const channel = client.channels.cache.get(id);
+        return channel && "name" in channel ? channel.name : null;
+      },
+    },
+    {
+      analysisDailyBudgetUsd: env.ANALYSIS_DAILY_BUDGET_USD,
+      reflectionHour: env.REFLECTION_HOUR,
+      retentionDays: env.MESSAGE_RETENTION_DAYS,
+    },
+  );
   safely("command registration", async () => {
     const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID);
     await guild.commands.set(COMMANDS);
@@ -112,6 +133,7 @@ await discord.login(env.DISCORD_TOKEN);
 async function shutdown(signal: string) {
   log.info({ signal }, "shutting down");
   pipeline?.stop();
+  stopJobs?.();
   health.close();
   await discord.destroy();
   await closeDb();

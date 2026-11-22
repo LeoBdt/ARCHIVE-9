@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/main.ts",
     "dev": "node --env-file-if-exists=../../.env --watch src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "backfill": "node --env-file-if-exists=../../.env src/backfill.ts"
   },
   "dependencies": {
     "@archive-9/ai": "workspace:*",

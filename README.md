@@ -9,6 +9,7 @@ apps/
   bot/        Discord process
 packages/
   core/       domain types and rules, no I/O
+  ai/         AI providers, tasks and prompts
   db/         Drizzle schema, migrations, database access
   config/     shared tsconfig and ESLint
 docker/       Dockerfiles
@@ -34,6 +35,7 @@ pnpm dev:bot
 | `pnpm test` | Vitest (database tests need `TEST_DATABASE_URL`) |
 | `pnpm test:coverage` | Vitest with coverage |
 | `pnpm db:generate --name <name>` | New migration after a schema change |
+| `pnpm backfill --days 30 --dry-run` | Count and price the history of the listened channels (`--max-cost <usd>` to analyse it) |
 
 TypeScript runs directly on Node, with no build step.
 

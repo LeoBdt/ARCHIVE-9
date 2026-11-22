@@ -100,6 +100,7 @@ export const profileFacts = pgTable(
     index("profile_facts_current_idx")
       .on(t.memberId)
       .where(sql`${t.supersededBy} is null and ${t.deletedAt} is null`),
+    index().on(t.createdAt),
   ],
 );
 
@@ -108,6 +109,8 @@ export const profileSummaries = pgTable("profile_summaries", {
     .primaryKey()
     .references(() => members.id, { onDelete: "cascade" }),
   summary: text().notNull(),
+  /** One line in ARCHIVE-9's voice, shown to the member. */
+  tagline: text(),
   factCount: integer().notNull(),
   model: text().notNull(),
   generatedAt: createdAt(),
