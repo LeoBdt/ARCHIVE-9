@@ -143,7 +143,7 @@ docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.1 --channel 
 docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.5 --reflect
 ```
 
-Batches run one after the other, about 30 seconds each, so a month of history takes most of an hour; summaries are refreshed every 15 batches, so an interrupted run keeps what it did and a rerun finishes the rest. `--reflect` then reads the whole period and also returns up to 15 facts for the server's profile. It reads (up to 400 messages, the conversations with the most reactions first, plus up to 60 facts) to build a first self state, with up to 5 additions per list. It is saved as an `initial` version, so the evening reflection still runs that day.
+Batches run one after the other, about 30 seconds each, so a month of history takes most of an hour; summaries are refreshed every 15 batches, so an interrupted run keeps what it did and a rerun finishes the rest. `--reflect` then reads the whole period (up to 400 messages, the conversations with the most reactions first, plus up to 60 facts) to build a first self state, with up to 5 additions per list, and returns up to 15 facts for the server's profile. It is saved as an `initial` version, so the evening reflection still runs that day.
 
 It holds the analysis lock for the whole run. When `--max-cost` is reached, the remaining backfilled messages are kept but marked as analysed, so the bot doesn't analyse them on its own budget. Useful at first start, after adding a channel, or after the bot was offline.
 
