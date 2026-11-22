@@ -20,6 +20,7 @@ export interface ParticipantProfile {
   name: string;
   isBot: boolean;
   isKnownAiBot: boolean;
+  isServer: boolean;
   summary: string | null;
   affinity: number | null;
   trust: number | null;
@@ -94,6 +95,7 @@ export async function participantProfiles(db: Database, ids: string[], factsPerM
       name: person.displayName ?? person.username,
       isBot: person.isBot,
       isKnownAiBot: person.isKnownAiBot,
+      isServer: person.isServer,
       summary: summaryOf.get(person.id) ?? null,
       affinity: relation?.affinity ?? null,
       trust: relation?.trust ?? null,

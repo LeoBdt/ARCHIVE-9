@@ -45,6 +45,14 @@ export async function ensureMember(db: Database, input: MemberInput): Promise<vo
     .onConflictDoNothing();
 }
 
+/** Creates or renames the row that holds the server's own profile. */
+export async function ensureServerProfile(db: Database, guildId: string, name: string): Promise<void> {
+  await db
+    .insert(members)
+    .values({ id: guildId, username: name, isServer: true, nameHistory: [{ name, seenAt: new Date().toISOString() }] })
+    .onConflictDoUpdate({ target: members.id, set: { username: name, isServer: true } });
+}
+
 export async function optedOutIds(db: Database, ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const rows = await db

@@ -14,7 +14,7 @@ import {
   saveSummary,
   type AnalysisWrite,
 } from "./learning.ts";
-import { ensureMember, getMember, upsertMember } from "./members.ts";
+import { ensureMember, ensureServerProfile, getMember, upsertMember } from "./members.ts";
 import {
   contextBefore,
   existingMessageIds,
@@ -150,6 +150,13 @@ describe.skipIf(!url)("learning repositories", () => {
     await applyAnalysis(db, write({ relationships: [relation()], at: at(24 * 60 + 1) }));
     expect((await participantProfiles(db, ["1"], 5))[0]?.affinity).toBe(20);
     expect((await relationshipEventsSince(db, at(0), 10))[0]).toMatchObject({ memberName: "tom", affinityDelta: 5 });
+  });
+
+  it("keeps a profile row for the server", async () => {
+    await ensureServerProfile(db, "500", "Royaume");
+    await ensureServerProfile(db, "500", "Le Royaume");
+    expect(await getMember(db, "500")).toMatchObject({ username: "Le Royaume", isServer: true, isBot: false });
+    expect((await participantProfiles(db, ["500"], 5))[0]).toMatchObject({ isServer: true, name: "Le Royaume" });
   });
 
   it("never writes about opted-out members", async () => {

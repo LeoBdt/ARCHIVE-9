@@ -27,6 +27,8 @@ export interface AnalysisParticipant {
   id: string;
   name: string;
   isBot: boolean;
+  /** The server's own profile, where group-level facts go. */
+  isServer?: boolean;
   summary: string | null;
   affinity: number | null;
   trust: number | null;
@@ -42,9 +44,19 @@ export interface AnalysisConversation {
   messages: TranscriptMessage[];
 }
 
+export interface ServerContext {
+  id: string;
+  name: string;
+  /** Written by an admin. */
+  description: string;
+  /** What ARCHIVE-9 learned about the server. */
+  summary: string | null;
+}
+
 export interface AnalysisInput {
   selfId: string;
   timezone: string;
+  server?: ServerContext;
   participants: AnalysisParticipant[];
   conversations: AnalysisConversation[];
 }
@@ -138,8 +150,9 @@ const NATURE_LABELS: Record<FactNature, string> = {
 };
 
 function describeParticipant(p: AnalysisParticipant, refOf: Map<string, string>): string {
-  const relation =
-    p.affinity === null
+  const relation = p.isServer
+    ? "le serveur lui-même, pour ce qui concerne tout le groupe"
+    : p.affinity === null
       ? "aucune relation"
       : `affinité ${String(p.affinity)}/100, confiance ${String(p.trust ?? 50)}/100${p.feeling ? `, ressenti : ${p.feeling}` : ""}`;
   const lines = [`- ${p.name}${p.isBot ? " [bot]" : ""} (ID ${p.id}) · ${relation}`];
@@ -165,11 +178,19 @@ ${context}${formatTranscript(c.messages, options)}
   });
 
   return `ARCHIVE-9 a l'ID ${input.selfId}.
-
+${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Participants
 ${input.participants.map((p) => describeParticipant(p, refOf)).join("\n") || "- (aucun)"}
 
 ${conversations.join("\n\n")}`;
+}
+
+/** The server section shared by the analysis, reply and reflection prompts. */
+export function describeServer(server: ServerContext): string {
+  const lines = [`Nom : ${server.name}.`];
+  if (server.description.trim()) lines.push(`Ce que les admins en disent : ${server.description.trim()}`);
+  if (server.summary) lines.push(`Ce que tu en as appris : ${server.summary}`);
+  return lines.join("\n");
 }
 
 function cleanId(value: string): string {
@@ -191,6 +212,7 @@ function clampDelta(value: number): number {
  */
 export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): AnalysisResult {
   const members = new Set(input.participants.map((p) => p.id).filter((id) => id !== input.selfId));
+  const serverIds = new Set(input.participants.filter((p) => p.isServer).map((p) => p.id));
   const refs = factRefs(input.participants);
   const authorOf = new Map(input.conversations.flatMap((c) => c.messages.map((m) => [m.id, m.authorId] as const)));
 
@@ -204,12 +226,13 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
     if (sources.length === 0) continue;
 
     const sourceAuthors = sources.map((id) => authorOf.get(id) ?? "");
-    const saidByThemself = sourceAuthors.includes(memberId);
+    // The server never writes: its facts are never "reported" by someone.
+    const saidByThemself = serverIds.has(memberId) || sourceAuthors.includes(memberId);
     // A "fact" is something people say about themselves; anything else is reported.
     const nature: FactNature = f.nature === "fact" && !saidByThemself ? "reported" : f.nature;
     const claimedReporter = f.reportedBy ? cleanId(f.reportedBy) : null;
     const reportedBy =
-      nature !== "reported"
+      nature !== "reported" || serverIds.has(memberId)
         ? null
         : claimedReporter && claimedReporter !== memberId && members.has(claimedReporter)
           ? claimedReporter
@@ -239,7 +262,7 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
   const relationships = new Map<string, RelationshipUpdate>();
   for (const r of raw.relationships) {
     const memberId = cleanId(r.memberId);
-    if (!members.has(memberId) || relationships.has(memberId)) continue;
+    if (!members.has(memberId) || serverIds.has(memberId) || relationships.has(memberId)) continue;
     const sourceMessageId = r.sourceMessageId ? cleanId(r.sourceMessageId) : null;
     relationships.set(memberId, {
       memberId,

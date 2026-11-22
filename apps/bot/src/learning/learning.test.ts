@@ -1,5 +1,5 @@
 import { AiRuntime, parseRoute, type Routes } from "@archive-9/ai";
-import { createDb, currentFacts, currentSelfState, insertMessages, pendingStats, profileOverview, upsertMember } from "@archive-9/db";
+import { createDb, currentFacts, currentSelfState, ensureServerProfile, insertMessages, pendingStats, profileOverview, upsertMember } from "@archive-9/db";
 import { createTestDatabase } from "@archive-9/db/test-utils";
 import { MockLanguageModelV4 } from "ai/test";
 import { pino } from "pino";
@@ -36,6 +36,7 @@ const model = new MockLanguageModelV4({
           opinions: { add: ["a", "b", "c", "d", "e", "f"], remove: [] },
           runningJokes: { add: ["le mot de passe 10codes"], remove: [] },
           notes: "Un serveur de joueurs.",
+          serverFacts: [{ category: "in_jokes", nature: "fact", confidence: 0.7, content: "Le mot de passe 10codes revient sans cesse." }],
         }),
       );
     }
@@ -50,6 +51,7 @@ const model = new MockLanguageModelV4({
           facts: [
             { memberId: "1", category: "games", nature: "fact", confidence: 0.9, content: "Joue à CS2.", sourceMessageIds: ["m1"], reportedBy: null, replaces: null },
             { memberId: "77", category: "games", nature: "fact", confidence: 0.9, content: "Inventé.", sourceMessageIds: ["m1"], reportedBy: null, replaces: null },
+            { memberId: "500000000000000000", category: "games", nature: "fact", confidence: 0.8, content: "On y débat de CS2.", sourceMessageIds: ["m1"], reportedBy: null, replaces: null },
           ],
           retractions: [],
           relationships: [{ memberId: "1", affinityDelta: 2, trustDelta: 1, reason: "sympa", sourceMessageId: "m2", feeling: "complice", howTheyTreatMe: null }],
@@ -80,7 +82,9 @@ describe.skipIf(!url)("learning cycle", () => {
       selfId: SELF,
       timezone: "Europe/Paris",
       channelName: () => "général",
+      server: { id: "500000000000000000", description: () => "Le Royaume, serveur de potes." },
     };
+    await ensureServerProfile(db, "500000000000000000", "Le Royaume");
     await upsertMember(db, { id: SELF, username: "ARCHIVE-9", displayName: null, isBot: true, isKnownAiBot: false });
     await upsertMember(db, { id: "1", username: "tom", displayName: "Tom", isBot: false, isKnownAiBot: false });
     const now = Date.now();
@@ -98,8 +102,9 @@ describe.skipIf(!url)("learning cycle", () => {
 
   it("learns from settled conversations and rewrites the profile", async () => {
     const report = await runAnalysis(deps, { budgetUsd: 1, includeOngoing: false });
-    expect(report).toMatchObject({ batches: 1, messages: 2, facts: 1, summaries: 1, failed: false, budgetReached: false });
-    expect(report.costUsd).toBeCloseTo(0.002);
+    expect(report).toMatchObject({ batches: 1, messages: 2, facts: 2, summaries: 2, failed: false, budgetReached: false });
+    expect(report.costUsd).toBeCloseTo(0.003);
+    expect((await currentFacts(conn.db, "500000000000000000", 10)).map((f) => f.content)).toEqual(["On y débat de CS2."]);
 
     const overview = await profileOverview(conn.db, "1");
     expect(overview).toMatchObject({ summary: "Joueur de CS2.", tagline: "Il vise mieux qu'il ne parle.", factCount: 1 });
@@ -135,6 +140,8 @@ describe.skipIf(!url)("learning cycle", () => {
     expect(state.mood).toBe("éveillé");
     expect(state.opinions).toEqual(["CS2 mérite mieux", "a", "b", "c", "d", "e"]);
     expect(state.runningJokes).toEqual(["le mot de passe 10codes"]);
+    expect((await currentFacts(conn.db, "500000000000000000", 10)).map((f) => f.content)).toContain("Le mot de passe 10codes revient sans cesse.");
+    expect((await profileOverview(conn.db, "500000000000000000")).factCount).toBe(2);
     expect(await runAwakening(deps, new Date())).toBe(false);
   });
 });

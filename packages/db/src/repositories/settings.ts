@@ -8,6 +8,8 @@ export interface BotSettings {
   spontaneity: number;
   showFallbackTag: boolean;
   listenedChannelIds: string[];
+  /** Written by an admin: what the server is. Given to every prompt. */
+  serverDescription: string;
   debounceMs: number;
 }
 
@@ -16,6 +18,7 @@ const KEYS = {
   spontaneity: "spontaneity",
   showFallbackTag: "show_fallback_tag",
   listenedChannelIds: "listened_channel_ids",
+  serverDescription: "server_description",
   debounceMs: "debounce_ms",
 } as const satisfies Record<keyof BotSettings, string>;
 
@@ -24,6 +27,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   spontaneity: 1,
   showFallbackTag: true,
   listenedChannelIds: [],
+  serverDescription: "",
   debounceMs: 8_000,
 };
 

@@ -120,6 +120,7 @@ flowchart LR
 - Relationship changes are capped at ±5 per batch and ±15 per member over 24 hours, counted from when the conversation happened. Relationship rows created by the analysis don't count as an introduction.
 - A batch is written in one transaction, which also marks its messages as analysed. Then each member whose facts changed gets a new summary (≤ 700 characters, read by the reply prompt) and a tagline (one line in ARCHIVE-9's voice, shown in `/mafiche`). A member with no fact left loses their summary.
 - Utility bots get no profile. Known AI bots do.
+- The server has its own profile: a `members` row keyed by the guild ID with `is_server`, listed among the participants of every batch. Group-level facts go there (history, events, traditions, collective jokes, vocabulary), never as `reported`, and it has no relationship. Its summary (≤ 1000 characters) is written apart from the admins' description, which every analysis, reply and reflection prompt also gets (`/config serveur`).
 - Analysis spending is capped by `ANALYSIS_DAILY_BUDGET_USD` over the last 24 hours. A failed batch stays pending and is retried an hour later. A Postgres advisory lock keeps two processes from analysing at once.
 - After each run, `pg_notify('archive9', …)` announces the change.
 
@@ -142,7 +143,7 @@ docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.1 --channel 
 docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.5 --reflect
 ```
 
-Batches run one after the other, about 30 seconds each, so a month of history takes most of an hour; summaries are refreshed every 15 batches, so an interrupted run keeps what it did and a rerun finishes the rest. `--reflect` then reads the whole period (up to 400 messages, the conversations with the most reactions first, plus up to 60 facts) to build a first self state, with up to 5 additions per list. It is saved as an `initial` version, so the evening reflection still runs that day.
+Batches run one after the other, about 30 seconds each, so a month of history takes most of an hour; summaries are refreshed every 15 batches, so an interrupted run keeps what it did and a rerun finishes the rest. `--reflect` then reads the whole period and also returns up to 15 facts for the server's profile. It reads (up to 400 messages, the conversations with the most reactions first, plus up to 60 facts) to build a first self state, with up to 5 additions per list. It is saved as an `initial` version, so the evening reflection still runs that day.
 
 It holds the analysis lock for the whole run. When `--max-cost` is reached, the remaining backfilled messages are kept but marked as analysed, so the bot doesn't analyse them on its own budget. Useful at first start, after adding a channel, or after the bot was offline.
 
@@ -152,9 +153,10 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 |---|---|---|
 | `/archive-9` | everyone | introduction |
 | `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
+| `/serveur` | everyone | what ARCHIVE-9 knows about the server: the admins' description, its learned summary |
 | `/oublie-moi` | everyone | deletes the member's messages (their DM conversations entirely), facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
-| `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
+| `/config etat \| ecoute \| serveur \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, describe the server (a form, up to 2000 characters), spontaneity level, fallback tag |
 | Diagnostic (message menu) | everyone | model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |
 
 ### Spontaneity
@@ -176,7 +178,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 
 | Table | Content |
 |---|---|
-| `members` | members and bots seen on the server, nickname history, opt-out |
+| `members` | members and bots seen on the server, nickname history, opt-out; one row for the server's own profile |
 | `messages` | raw messages from listened channels, with reactions and analysis status |
 | `profile_facts` | one learned fact per row: category, nature, confidence, sources, reporter; a correction replaces a row through `superseded_by` |
 | `profile_summaries` | short summary of each profile, used in replies, and a tagline |
