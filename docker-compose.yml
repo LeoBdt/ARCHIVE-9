@@ -27,9 +27,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    labels:
-      - wud.watch=true
-      - wud.watch.digest=true
     mem_limit: 1g
     networks: [db]
 
@@ -58,10 +55,6 @@ services:
       AI_ROUTE_ANALYSIS:
       AI_ROUTE_REFLECTION:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    labels:
-      - wud.watch=true
-      - wud.watch.digest=true
-      - wud.trigger.docker.autoupdate.enabled=true
     mem_limit: 384m
     networks: [db, egress]
 
@@ -87,38 +80,12 @@ services:
         done
     volumes:
       - backups:/backups
-    labels:
-      - wud.watch=true
-      - wud.watch.digest=true
     mem_limit: 64m
     networks: [db]
-
-  wud:
-    image: getwud/wud:9
-    restart: unless-stopped
-    environment:
-      WUD_WATCHER_LOCAL_WATCHBYDEFAULT: "false"
-      WUD_TRIGGER_DOCKER_AUTOUPDATE_AUTO: "true"
-      WUD_TRIGGER_DOCKER_AUTOUPDATE_PRUNE: "true"
-      WUD_TRIGGER_DOCKER_AUTOUPDATE_INCLUDEBYDEFAULT: "false"
-      WUD_AUTH_ADMIN_USER: ${WUD_ADMIN_USER:-admin}
-      WUD_AUTH_ADMIN_PASSWORD: ${WUD_ADMIN_PASSWORD}
-      WUD_AUTH_SESSION_SECRET: ${WUD_SESSION_SECRET}
-    volumes:
-      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
-      - wud:/store
-    ports:
-      - ${WUD_PORT:-3000}:3000
-    labels:
-      - wud.watch=true
-      - wud.watch.digest=true
-    mem_limit: 128m
-    networks: [egress]
 
 volumes:
   pgdata:
   backups:
-  wud:
 
 networks:
   db:
