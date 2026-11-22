@@ -60,6 +60,9 @@ export interface PipelineDeps {
   server: ServerSource;
   agentsCategoryId: string | null;
   replyDailyBudgetUsd: number;
+  /** « Novahe (a1b2c3d) », stored with every AI call. */
+  version: string;
+  startedAt: Date;
 }
 
 const TRIAGE_WINDOW = 10;
@@ -181,7 +184,9 @@ export class Pipeline {
     );
 
     if (decision.action === "ignore") {
-      this.deps.log.trace({ messageId: message.id, reason: decision.reason }, "ignored");
+      // A mention that gets no answer is worth seeing in the normal logs.
+      const level = message.mentions.users.has(selfId) && decision.reason !== "self" ? "info" : "trace";
+      this.deps.log[level]({ messageId: message.id, channelId: message.channelId, reason: decision.reason }, "ignored");
       return;
     }
     if (decision.fromBot) {
@@ -328,6 +333,7 @@ export class Pipeline {
           server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
           skills,
+          version: { label: this.deps.version, since: this.deps.startedAt },
         },
         (ref, isFallback) => ({
           ...createSendTools(channel, target, send, isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined),
@@ -485,6 +491,7 @@ export class Pipeline {
       runId,
       detail: record.status === "ok" ? (extra.detail ?? null) : null,
       replyMessageIds: index === usage.length - 1 ? (extra.replyMessageIds ?? []) : [],
+      version: this.deps.version,
     }));
     if (rows.length === 0 && extra.replyMessageIds?.length) {
       rows.push({
@@ -503,6 +510,7 @@ export class Pipeline {
         error: null,
         detail: extra.detail ?? null,
         replyMessageIds: extra.replyMessageIds,
+        version: this.deps.version,
       });
     }
     await recordAiUsage(this.deps.db, rows).catch((err: unknown) => {

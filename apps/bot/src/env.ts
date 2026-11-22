@@ -35,6 +35,8 @@ const schema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   HEALTH_PORT: z.coerce.number().int().positive().default(3001),
   BOT_TIMEZONE: z.string().default("Europe/Paris"),
+  /** Set by the image build. */
+  GIT_SHA: z.string().default("dev"),
 
   DATABASE_URL: z.url(),
 

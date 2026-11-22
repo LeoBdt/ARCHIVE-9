@@ -9,7 +9,9 @@ COPY . .
 RUN pnpm install --offline --prod --frozen-lockfile --filter @archive-9/bot...
 
 FROM node:26-alpine
-ENV NODE_ENV=production
+# Commit of the build, turned into the version name shown by the bot
+ARG GIT_SHA=dev
+ENV NODE_ENV=production GIT_SHA=$GIT_SHA
 WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 # Every workspace package, so a new one is never left out of the image

@@ -223,6 +223,8 @@ export const aiUsage = pgTable(
     error: text(),
     detail: text(),
     replyMessageIds: text().array().notNull().default(sql`'{}'::text[]`),
+    /** Version of the bot that made the call (« Novahe (a1b2c3d) »). */
+    version: text(),
     createdAt: createdAt(),
   },
   (t) => [

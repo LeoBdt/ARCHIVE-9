@@ -79,6 +79,7 @@ jobs:
           context: .
           file: docker/bot.Dockerfile
           platforms: linux/amd64
+          build-args: GIT_SHA=${{ github.sha }}
           load: true
           tags: archive-9-bot:ci
           cache-from: type=gha,scope=bot
@@ -96,6 +97,7 @@ jobs:
           context: .
           file: docker/bot.Dockerfile
           platforms: linux/amd64
+          build-args: GIT_SHA=${{ github.sha }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

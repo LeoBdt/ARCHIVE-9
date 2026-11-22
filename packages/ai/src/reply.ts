@@ -42,6 +42,8 @@ export interface ReplyInput {
   elsewhere?: { where: string; messages: TranscriptMessage[] }[];
   /** Skills that apply to this message: permanent ones and those its words trigger. */
   skills?: { name: string; kind: SkillKind; rule: string; authorName: string | null }[];
+  /** The deployment currently running, and since when. */
+  version?: { label: string; since: Date };
 }
 
 export const REPLY_SYSTEM = `${PERSONA}\n\n${RULES}`;
@@ -95,8 +97,12 @@ ${input.skills.map((k) => `- ${k.name}${k.kind === "triggered" ? " (déclenchée
 `
     : "";
 
+  const version = input.version
+    ? `\nTa version actuelle : ${input.version.label}, en ligne depuis le ${input.version.since.toLocaleString("fr-FR", { timeZone: input.timezone, dateStyle: "long", timeStyle: "short" })}.`
+    : "";
+
   return `## Contexte
-${when}, ${where}.
+${when}, ${where}.${version}
 ${situation}
 ${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Ton état actuel

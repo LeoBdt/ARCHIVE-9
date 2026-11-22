@@ -1,4 +1,5 @@
 import { AiRuntime, createModelResolver } from "@archive-9/ai";
+import { versionLabel } from "@archive-9/core";
 import { createDb, ensureServerProfile, ping, runMigrations } from "@archive-9/db";
 import { Client, Events, GatewayIntentBits, Partials, type Guild } from "discord.js";
 import { COMMANDS, handleInteraction } from "./commands.ts";
@@ -8,10 +9,14 @@ import { Ingest } from "./ingest.ts";
 import { startLearningJobs } from "./learning/jobs.ts";
 import { createLogger } from "./logger.ts";
 import { Pipeline } from "./pipeline.ts";
+import { Presence } from "./presence.ts";
 import { SettingsStore } from "./settings.ts";
 
 const env = parseEnv();
 const log = createLogger(env.LOG_LEVEL);
+const version = versionLabel(env.GIT_SHA);
+const startedAt = new Date();
+log.info({ version }, "starting");
 
 await runMigrations(env.DATABASE_URL);
 log.info("migrations applied");
@@ -48,6 +53,7 @@ const discord = new Client({
 });
 
 const ingest = new Ingest({ db, settings, knownAiBotIds });
+const presence = new Presence({ db, ai, log, settings, timezone: env.BOT_TIMEZONE, version });
 const server = { id: env.DISCORD_GUILD_ID };
 let pipeline: Pipeline | undefined;
 let stopJobs: (() => void) | undefined;
@@ -72,7 +78,10 @@ discord.once(Events.ClientReady, (client) => {
     server,
     agentsCategoryId: env.AGENTS_CATEGORY_ID ?? null,
     replyDailyBudgetUsd: env.REPLY_DAILY_BUDGET_USD,
+    version,
+    startedAt,
   });
+  presence.start(client);
   stopJobs ??= startLearningJobs(
     {
       db,
@@ -133,7 +142,7 @@ discord.on(Events.MessageReactionRemove, (reaction) => {
 });
 discord.on(Events.InteractionCreate, (interaction) => {
   if (!discord.user) return;
-  safely("interaction", () => handleInteraction(interaction, { db, settings, log, selfId: discord.user?.id ?? "", guildId: env.DISCORD_GUILD_ID, agentsCategoryId: env.AGENTS_CATEGORY_ID ?? null }));
+  safely("interaction", () => handleInteraction(interaction, { db, settings, log, selfId: discord.user?.id ?? "", guildId: env.DISCORD_GUILD_ID, agentsCategoryId: env.AGENTS_CATEGORY_ID ?? null, version, presence }));
 });
 
 const health = startHealthServer(env.HEALTH_PORT, async () => {
@@ -147,6 +156,7 @@ await discord.login(env.DISCORD_TOKEN);
 async function shutdown(signal: string) {
   log.info({ signal }, "shutting down");
   pipeline?.stop();
+  presence.stop();
   stopJobs?.();
   health.close();
   await discord.destroy();

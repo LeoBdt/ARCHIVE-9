@@ -8,6 +8,7 @@ import { parseRoute } from "./routes.ts";
 import { AiRuntime, type Routes } from "./runtime.ts";
 import { mockModel, mockResolver, mockResult, text, toolCall } from "./test-utils.ts";
 import { buildSkillCheckPrompt, checkSkill } from "./skill-check.ts";
+import { buildStatusPrompt, cleanStatus, writeStatus } from "./status.ts";
 import { buildTriagePrompt, triage } from "./triage.ts";
 
 const chain = parseRoute("groq:main");
@@ -97,6 +98,11 @@ describe("buildReplyPrompt", () => {
     expect(outside).toContain("du troll");
   });
 
+  it("knows its version", () => {
+    const prompt = buildReplyPrompt({ ...baseInput, version: { label: "Novahe (a1b2c3d)", since: new Date("2026-01-01T08:00:00Z") } });
+    expect(prompt).toContain("Ta version actuelle : Novahe (a1b2c3d), en ligne depuis le 1 janvier 2026 à 09:00.");
+  });
+
   it("adds the short memory of the target author", () => {
     const said = { id: "7", authorId: "1", authorName: "Tom", authorIsBot: false, isSelf: false, content: "j'ai stage lundi", replyToId: null, createdAt: new Date("2026-01-01T18:00:00Z") };
     const prompt = buildReplyPrompt({ ...baseInput, elsewhere: [{ where: "en message privé", messages: [said] }, { where: "#jeux", messages: [] }] });
@@ -125,6 +131,28 @@ describe("skills in the reply prompt", () => {
     expect(prompt).toContain("- Météo, par Lea : Parle de la pluie.");
     expect(prompt).toContain("- Pizza (déclenchée par ce message), par un ancien membre : L'ananas est un crime.");
     expect(buildReplyPrompt(baseInput)).not.toContain("## Skills");
+  });
+});
+
+describe("status line", () => {
+  const input = { now: baseInput.now, timezone: "Europe/Paris", selfState: { ...INITIAL_SELF_STATE, mood: "grognon" }, previous: ["Je classe les silences."] };
+
+  it("gives the mood and the previous lines as data", () => {
+    const prompt = buildStatusPrompt(input);
+    expect(prompt).toContain("Humeur : grognon");
+    expect(prompt).toContain("« Je classe les silences. »");
+    expect(prompt).toMatch(/<donnees>[\s\S]*<\/donnees>$/);
+  });
+
+  it("keeps one clean line within Discord's limit", () => {
+    expect(cleanStatus(" « J'archive\nles nuages » ")).toBe("J'archive les nuages");
+    expect(cleanStatus("x".repeat(200))).toHaveLength(128);
+    expect(cleanStatus(" \" ")).toBeNull();
+  });
+
+  it("returns the small model's line", async () => {
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify({ status: "Humeur : corrompu mais fonctionnel." })))) }));
+    expect((await writeStatus(ai, input)).status).toBe("Humeur : corrompu mais fonctionnel.");
   });
 });
 

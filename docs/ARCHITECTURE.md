@@ -185,6 +185,11 @@ Batches run one after the other, about 30 seconds each, so a month of history ta
 
 It holds the analysis lock for the whole run. When `--max-cost` is reached, the remaining backfilled messages are kept but marked as analysed, so the bot doesn't analyse them on its own budget. Useful at first start, after adding a channel, or after the bot was offline.
 
+## Version and status
+
+- The image is built with the commit (`GIT_SHA`), turned into an invented version name such as *Novahe*: three syllable lists picked by the commit's first bytes, so a commit always gets the same name. Shown as `Novahe (a1b2c3d)`, or `dev` locally. Each AI call stores the version that made it, so Diagnostic shows the version that wrote a message. The reply prompt says which version is running and since when.
+- The profile status is a line written by the triage model from the current self state, with an angle drawn by the code (mood, absurd thought, fake procedure…) and the last 5 lines to avoid repeats. It changes every 4 to 6 hours, and shows a fixed line while paused.
+
 ## Commands
 
 | Command | Who | Effect |
@@ -194,12 +199,12 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 | `/serveur` | everyone | what ARCHIVE-9 knows about the server: its fixed description and learned summary |
 | `/oublie-moi` | everyone | deletes the member's messages (their DM conversations entirely), facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
-| `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
+| `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show the version, settings and current status; toggle the current channel, spontaneity level, fallback tag |
 | `/skills [supprimer]` | everyone | list the skills (author, triggers, use count); delete one (own, or any for an admin) |
 | `/actions` | Manage Server | last 10 controlled actions, with an undo button for each |
 
 Guild commands are registered at start-up and again whenever the bot joins the server.
-| Diagnostic (message menu) | everyone | model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |
+| Diagnostic (message menu) | everyone | version, model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |
 
 ### Spontaneity
 

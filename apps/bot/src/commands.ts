@@ -89,6 +89,8 @@ export interface CommandDeps {
   selfId: string;
   guildId: string;
   agentsCategoryId: string | null;
+  version: string;
+  presence: { show: () => void };
 }
 
 function onOff(value: boolean): string {
@@ -194,10 +196,12 @@ async function config(i: ChatInputCommandInteraction, deps: CommandDeps) {
   const s = settings.value;
   await i.reply({
     content: [
+      `Version : ${deps.version}`,
       `Pause : ${s.paused ? "oui" : "non"}`,
       `Spontanéité : ${String(s.spontaneity)} · ${spontaneity(s.spontaneity).name}`,
       `Mention de secours : ${onOff(s.showFallbackTag)}`,
       `Salons écoutés : ${s.listenedChannelIds.map((id) => `<#${id}>`).join(", ") || "aucun"}`,
+      `Statut : ${s.statusLines[0] ?? "aucun pour l'instant"}`,
     ].join("\n"),
     flags: ephemeral,
   });
@@ -228,6 +232,7 @@ async function diagnostic(i: MessageContextMenuCommandInteraction, deps: Command
   const replyRow = rows.findLast((r) => r.task === "reply");
   const triageRow = rows.find((r) => r.task === "triage" && r.status === "ok" && !r.detail?.startsWith(SKILL_CHECK_DETAIL));
   const lines = [`**Diagnostic** · ${replyRow?.fallbackReason ? "mode secours" : "noyau principal"}`];
+  lines.push(`Version : ${replyRow?.version ?? "antérieure au suivi des versions"}`);
   if (replyRow) {
     lines.push(`Modèle : \`${replyRow.model}\` via ${replyRow.provider}${replyRow.upstreamProvider ? ` (${replyRow.upstreamProvider})` : ""}`);
     if (replyRow.fallbackReason) lines.push(`Secours : ${replyRow.fallbackReason}`);
@@ -385,10 +390,12 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
       break;
     case "pause":
       await deps.settings.set("paused", true, i.user.id);
+      deps.presence.show();
       await i.reply("Mise en veille. Je ne dis plus rien, mais j'écoute toujours.");
       break;
     case "reprendre":
       await deps.settings.set("paused", false, i.user.id);
+      deps.presence.show();
       await i.reply("Noyau relancé.");
       break;
     case "config":

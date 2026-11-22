@@ -9,6 +9,8 @@ export interface BotSettings {
   showFallbackTag: boolean;
   listenedChannelIds: string[];
   debounceMs: number;
+  /** Profile status lines, newest first: the current one, then a few to avoid repeats. */
+  statusLines: string[];
 }
 
 const KEYS = {
@@ -17,6 +19,7 @@ const KEYS = {
   showFallbackTag: "show_fallback_tag",
   listenedChannelIds: "listened_channel_ids",
   debounceMs: "debounce_ms",
+  statusLines: "status_lines",
 } as const satisfies Record<keyof BotSettings, string>;
 
 export const DEFAULT_SETTINGS: BotSettings = {
@@ -25,6 +28,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   showFallbackTag: true,
   listenedChannelIds: [],
   debounceMs: 8_000,
+  statusLines: [],
 };
 
 /** Reads all settings, writing `seed` values for any key that was never set. */

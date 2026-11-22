@@ -13,3 +13,4 @@ export * from "./self-state.ts";
 export * from "./skills.ts";
 export * from "./spontaneity.ts";
 export * from "./transcript.ts";
+export * from "./version.ts";
