@@ -2,7 +2,7 @@
  * Reads the history of the listened channels from Discord and analyses it.
  *
  *   node src/backfill.ts --days 30 --dry-run
- *   node src/backfill.ts --days 30 --max-cost 0.5 [--channel <id>] [--reflect]
+ *   node src/backfill.ts --days 30 --max-cost 0.5 [--channel <id>] [--reflect | --server]
  */
 import { parseArgs } from "node:util";
 import { AiRuntime, createModelResolver } from "@archive-9/ai";
@@ -10,6 +10,7 @@ import type { MessageReactions } from "@archive-9/core";
 import {
   createDb,
   ensureMember,
+  ensureServerProfile,
   existingMessageIds,
   insertMessages,
   loadSettings,
@@ -43,6 +44,7 @@ const { values: args } = parseArgs({
     "max-cost": { type: "string" },
     channel: { type: "string" },
     reflect: { type: "boolean", default: false },
+    server: { type: "boolean", default: false },
   },
 });
 
@@ -135,7 +137,7 @@ const estimate = estimateAnalysisCost(fresh.length, fresh.reduce((sum, m) => sum
 console.log(`
 ${String(kept.length)} messages found, ${String(known.size)} already archived, ${String(fresh.length)} new, from ${String(authors.size)} members.
 Estimate: ~${String(estimate.batches)} batches, ~${String(Math.round(estimate.inputTokens / 1000))}k tokens in, ~${String(Math.round(estimate.outputTokens / 1000))}k out.
-Cost: $${estimate.lowUsd.toFixed(2)} to $${estimate.highUsd.toFixed(2)}, plus messages already waiting for analysis${args.reflect ? ", plus ~$0.01 for --reflect" : ""}.
+Cost: $${estimate.lowUsd.toFixed(2)} to $${estimate.highUsd.toFixed(2)}, plus messages already waiting for analysis${args.reflect || args.server ? ", plus ~$0.01 for the history reading" : ""}.
 Expect roughly ${String(Math.ceil((estimate.batches * 30 + authors.size * 5) / 60))} minutes; run it in tmux or screen.`);
 
 if (args["dry-run"] || maxCost === null) {
@@ -181,7 +183,17 @@ const lock = await withAdvisoryLock(client, ANALYSIS_LOCK, async () => {
   );
   console.log(`\n${String(inserted.length)} messages archived. Analysing (max $${maxCost.toFixed(2)})…`);
 
-  const deps = { db, ai, log, selfId: self.id, timezone: env.BOT_TIMEZONE, channelName: (id: string) => channels.get(id) ?? null };
+  const guild = (await rest.get(Routes.guild(env.DISCORD_GUILD_ID))) as { id: string; name: string };
+  await ensureServerProfile(db, guild.id, guild.name);
+  const deps = {
+    db,
+    ai,
+    log,
+    selfId: self.id,
+    timezone: env.BOT_TIMEZONE,
+    channelName: (id: string) => channels.get(id) ?? null,
+    server: { id: guild.id },
+  };
   const report = await runAnalysis(
     deps,
     {
@@ -203,10 +215,10 @@ const lock = await withAdvisoryLock(client, ANALYSIS_LOCK, async () => {
   if (report.failed) console.log("A batch failed; the remaining messages stay pending and the bot will analyse them later.");
   console.log(`Done: ${String(report.messages)} messages, ${String(report.facts)} facts, ${String(report.summaries)} profiles, $${report.costUsd.toFixed(4)}.`);
 
-  if (args.reflect) {
-    console.log("Reading the whole history to build ARCHIVE-9's first self state…");
+  if (args.reflect || args.server) {
+    console.log(args.reflect ? "Reading the whole history to build ARCHIVE-9's first self state…" : "Reading the whole history for the server's profile…");
     try {
-      if (await runAwakening(deps, since)) console.log("Self state saved.");
+      if (await runAwakening(deps, since, { serverOnly: !args.reflect })) console.log("Done reading.");
     } catch (error) {
       console.log(`Reflection failed: ${(error as Error).message}`);
     }

@@ -16,6 +16,7 @@ import {
   type StoredMessage,
 } from "@archive-9/db";
 import type { Logger } from "../logger.ts";
+import { loadServerContext, type ServerSource } from "./server.ts";
 
 export interface LearningDeps {
   db: Database;
@@ -24,6 +25,7 @@ export interface LearningDeps {
   selfId: string;
   timezone: string;
   channelName: (channelId: string) => string | null;
+  server: ServerSource;
 }
 
 export interface AnalysisOptions {
@@ -85,6 +87,7 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
   const { db, ai, log, selfId } = deps;
   const report: AnalysisReport = { batches: 0, messages: 0, facts: 0, summaries: 0, costUsd: 0, failed: false, budgetReached: false };
   const touched = new Set<string>();
+  const server = await loadServerContext(db, deps.server);
 
   analysis: for (;;) {
     const now = new Date();
@@ -112,22 +115,24 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
         }),
       );
       // Utility bots (music, moderation…) get no profile; the other AI bots do.
-      const participants = (await participantProfiles(db, participantIds(batch, selfId), FACTS_IN_PROMPT)).filter(
+      const ids = participantIds(batch, selfId);
+      if (server) ids.push(server.id);
+      const participants = (await participantProfiles(db, ids, FACTS_IN_PROMPT)).filter(
         (p) => !p.isBot || p.isKnownAiBot,
       );
-      const outcome = await analyse(ai, { selfId, timezone: deps.timezone, participants, conversations });
-      const ids = batch.flat().map((m) => m.id);
+      const outcome = await analyse(ai, { selfId, timezone: deps.timezone, server, participants, conversations });
+      const messageIds = batch.flat().map((m) => m.id);
       report.costUsd += costOf(outcome.usage);
-      await saveUsage(db, outcome.usage, `${String(ids.length)} messages`);
+      await saveUsage(db, outcome.usage, `${String(messageIds.length)} messages`);
 
       if (!outcome.result) {
-        log.warn({ messages: ids.length }, "analysis batch failed");
+        log.warn({ messages: messageIds.length }, "analysis batch failed");
         report.failed = true;
         break analysis;
       }
       const changed = await applyAnalysis(db, {
         ...outcome.result,
-        analysedIds: ids,
+        analysedIds: messageIds,
         at: batch.flat().at(-1)?.createdAt ?? new Date(),
       });
       for (const id of changed) touched.add(id);
@@ -136,7 +141,7 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
         report.summaries += await refreshSummaries(deps, [...touched], report);
         touched.clear();
       }
-      report.messages += ids.length;
+      report.messages += messageIds.length;
       report.facts += outcome.result.facts.length;
       options.onBatch?.({ messages: report.messages, costUsd: report.costUsd });
     }
@@ -148,7 +153,8 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
   return report;
 }
 
-async function refreshSummaries(deps: LearningDeps, memberIds: string[], report: AnalysisReport): Promise<number> {
+/** Rewrites the summaries of these members (or of the server). Returns how many were written. */
+export async function refreshSummaries(deps: LearningDeps, memberIds: string[], report: { costUsd: number }): Promise<number> {
   const { db, ai } = deps;
   const people = new Map((await participantProfiles(db, memberIds, 0)).map((p) => [p.id, p]));
   const relations = await memberContexts(db, memberIds);
@@ -164,6 +170,7 @@ async function refreshSummaries(deps: LearningDeps, memberIds: string[], report:
     const outcome = await summarise(ai, {
       name: person.name,
       isBot: person.isBot,
+      isServer: person.isServer,
       feeling: relations.get(memberId)?.feeling ?? null,
       facts,
     });

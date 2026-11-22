@@ -1,5 +1,6 @@
 import { formatTranscript, type SelfState, type TranscriptMessage } from "@archive-9/core";
 import { generateText, hasToolCall, stepCountIs, type ToolSet } from "ai";
+import { describeServer, type ServerContext } from "./analysis.ts";
 import { PERSONA, RULES } from "./prompts/persona.ts";
 import type { ModelRef } from "./routes.ts";
 import type { AiRuntime } from "./runtime.ts";
@@ -32,6 +33,9 @@ export interface ReplyInput {
   transcript: string;
   participants: Participant[];
   selfState: SelfState;
+  server?: ServerContext;
+  /** Member names by ID, to show tags as `@Name`. */
+  names?: ReadonlyMap<string, string>;
   /** What the target author said recently in other channels or DMs, grouped by place. */
   elsewhere?: { where: string; messages: TranscriptMessage[] }[];
 }
@@ -70,7 +74,7 @@ export function buildReplyPrompt(input: ReplyInput): string {
     ? `\n## Ce que ${author} t'a dit récemment ailleurs
 Ta mémoire courte : ce n'est peut-être pas encore dans sa fiche. Sers-t'en si c'est utile, comme un souvenir.
 ${elsewhere
-  .map((e) => `### ${e.where}\n<donnees>\n${formatTranscript(e.messages, { timeZone: input.timezone, maxContentLength: 300 })}\n</donnees>`)
+  .map((e) => `### ${e.where}\n<donnees>\n${formatTranscript(e.messages, { timeZone: input.timezone, maxContentLength: 300, names: input.names })}\n</donnees>`)
   .join("\n")}
 `
     : "";
@@ -78,7 +82,7 @@ ${elsewhere
   return `## Contexte
 ${when}, ${where}.
 ${situation}
-${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}
+${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Ton état actuel
 ${describeSelfState(input.selfState)}
 

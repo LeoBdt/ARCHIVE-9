@@ -1,4 +1,4 @@
-import { INTRODUCTION } from "@archive-9/ai";
+import { INTRODUCTION, SERVER_DESCRIPTION } from "@archive-9/ai";
 import { currentFacts, forgetMember, optBackIn, profileOverview, runForMessage, type CurrentFact, type Database } from "@archive-9/db";
 import {
   ActionRowBuilder,
@@ -14,6 +14,7 @@ import {
   type Interaction,
   type MessageContextMenuCommandInteraction,
 } from "discord.js";
+import { truncate } from "@archive-9/core";
 import { SPONTANEITY_LEVELS, spontaneity } from "@archive-9/core";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
@@ -24,6 +25,7 @@ const ephemeral = MessageFlags.Ephemeral;
 export const COMMANDS = [
   new SlashCommandBuilder().setName("archive-9").setDescription("ARCHIVE-9 se présente"),
   new SlashCommandBuilder().setName("mafiche").setDescription("Ce qu'ARCHIVE-9 sait sur toi"),
+  new SlashCommandBuilder().setName("serveur").setDescription("Ce qu'ARCHIVE-9 sait du serveur"),
   new SlashCommandBuilder().setName("oublie-moi").setDescription("Effacer toutes tes données et ne plus être archivé"),
   new SlashCommandBuilder().setName("pause").setDescription("Couper toutes les réponses d'ARCHIVE-9").setDefaultMemberPermissions(ADMIN),
   new SlashCommandBuilder().setName("reprendre").setDescription("Relancer ARCHIVE-9 après une pause").setDefaultMemberPermissions(ADMIN),
@@ -59,6 +61,7 @@ export interface CommandDeps {
   settings: SettingsStore;
   log: Logger;
   selfId: string;
+  guildId: string;
 }
 
 function onOff(value: boolean): string {
@@ -173,6 +176,18 @@ async function config(i: ChatInputCommandInteraction, deps: CommandDeps) {
   });
 }
 
+async function serverProfile(i: ChatInputCommandInteraction, deps: CommandDeps) {
+  const overview = await profileOverview(deps.db, deps.guildId);
+  const facts = await currentFacts(deps.db, deps.guildId, 8);
+  const lines = [`**${overview.member?.username ?? i.guild?.name ?? "Le serveur"}**`];
+  if (overview.tagline) lines.push(`> ${overview.tagline}`);
+  lines.push("", SERVER_DESCRIPTION);
+  if (overview.summary) lines.push("", "**Ce que j'en ai appris**", overview.summary);
+  else if (facts.length > 0) lines.push("", "**Ce que j'en ai appris**", ...facts.map((f) => `- ${f.content}`));
+  lines.push(`-# ${String(overview.factCount)} fragments retenus sur le serveur`);
+  await i.reply({ content: truncate(lines.join("\n"), 2_000), flags: ephemeral });
+}
+
 async function diagnostic(i: MessageContextMenuCommandInteraction, deps: CommandDeps) {
   if (i.targetMessage.author.id !== deps.selfId) {
     await i.reply({ content: "Ce message ne vient pas de moi.", flags: ephemeral });
@@ -226,6 +241,9 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
       break;
     case "mafiche":
       await myProfile(i, deps);
+      break;
+    case "serveur":
+      await serverProfile(i, deps);
       break;
     case "oublie-moi":
       await forgetMe(i);

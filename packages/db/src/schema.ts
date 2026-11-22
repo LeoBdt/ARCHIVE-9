@@ -46,6 +46,8 @@ export const members = pgTable("members", {
   nameHistory: jsonb().$type<NameHistoryEntry[]>().notNull().default([]),
   isBot: boolean().notNull().default(false),
   isKnownAiBot: boolean().notNull().default(false),
+  /** The row holding the server's own profile, keyed by the guild ID. */
+  isServer: boolean().notNull().default(false),
   optedOutAt: timestamptz(),
   firstSeenAt: createdAt(),
   lastSeenAt: createdAt(),

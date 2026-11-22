@@ -13,6 +13,7 @@ import {
   AmbientBudget,
   BotLoopGuard,
   KeyedDebouncer,
+  createMemberFinder,
   createNameMatcher,
   decideIngress,
   formatTranscript,
@@ -22,6 +23,7 @@ import {
   currentSelfState,
   lastMessageAt,
   memberContexts,
+  memberDirectory,
   optedOutIds,
   recentMessages,
   recentWithMember,
@@ -29,10 +31,12 @@ import {
   recordInteraction,
   type AiUsageInput,
   type Database,
+  type DirectoryMember,
 } from "@archive-9/db";
 import type { Message, SendableChannels } from "discord.js";
 import { createSendTools, type SendState } from "./discord/send-tools.ts";
 import { keepTyping } from "./discord/typing.ts";
+import { loadServerContext, type ServerSource } from "./learning/server.ts";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
 
@@ -46,6 +50,7 @@ export interface PipelineDeps {
   aliases: string[];
   softAliases: string[];
   timezone: string;
+  server: ServerSource;
 }
 
 const TRIAGE_WINDOW = 10;
@@ -54,6 +59,16 @@ const ACTIVE_CONVERSATION_MS = 3 * 60_000;
 const DIRECT_FOLLOW_UP_MS = 2 * 60_000;
 const SHORT_MEMORY_MS = 6 * 60 * 60_000;
 const SHORT_MEMORY_MESSAGES = 10;
+const DIRECTORY_TTL_MS = 10 * 60_000;
+/** People tagged or named in the conversation whose profile is added to the reply prompt. */
+const MAX_MENTIONED = 5;
+
+interface Directory {
+  loadedAt: number;
+  byId: Map<string, DirectoryMember>;
+  names: Map<string, string>;
+  find: (content: string, limit?: number) => string[];
+}
 
 interface Exchange {
   at: number;
@@ -98,6 +113,7 @@ export class Pipeline {
   private readonly pending = new Map<string, Message>();
   private readonly lastExchange = new Map<string, Exchange>();
   private readonly debouncer: KeyedDebouncer;
+  private cachedDirectory: Directory | null = null;
 
   constructor(deps: PipelineDeps) {
     this.deps = deps;
@@ -185,7 +201,12 @@ export class Pipeline {
       const runId = randomUUID();
       const history = await recentMessages(db, channelId, selfId, TRIAGE_WINDOW);
       const outcome = await triage(ai, {
-        transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300, timeZone: this.deps.timezone }),
+        transcript: formatTranscript(history, {
+          targetId: target.id,
+          maxContentLength: 300,
+          timeZone: this.deps.timezone,
+          names: (await this.directory()).names,
+        }),
         channelName: "name" in target.channel ? target.channel.name : null,
         conversationNote: await this.conversationNote(target),
       });
@@ -260,7 +281,8 @@ export class Pipeline {
         : await recentMessages(db, target.channelId, selfId, REPLY_WINDOW);
       if (!history.some((m) => m.id === target.id)) history.push(toTranscript(target, selfId));
 
-      const participants = await this.participants(history, target);
+      const directory = await this.directory();
+      const participants = await this.participants(history, target, directory);
       const elsewhere = await this.elsewhere(target, history);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
       const outcome = await reply(
@@ -274,9 +296,11 @@ export class Pipeline {
           targetId: target.id,
           targetAuthorId: target.author.id,
           triageReason: run.triageReason,
-          transcript: formatTranscript(history, { targetId: target.id, timeZone: this.deps.timezone }),
+          transcript: formatTranscript(history, { targetId: target.id, timeZone: this.deps.timezone, names: directory.names }),
+          names: directory.names,
           participants,
           elsewhere,
+          server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
         },
         (ref, isFallback) =>
@@ -359,10 +383,40 @@ export class Pipeline {
     return [...places.values()];
   }
 
-  private async participants(history: TranscriptMessage[], target: Message): Promise<Participant[]> {
+/** Names of every member, refreshed every few minutes, to resolve tags and nicknames. */
+  private async directory(): Promise<Directory> {
+    if (this.cachedDirectory && Date.now() - this.cachedDirectory.loadedAt < DIRECTORY_TTL_MS) return this.cachedDirectory;
+    const members = await memberDirectory(this.deps.db);
+    this.cachedDirectory = {
+      loadedAt: Date.now(),
+      byId: new Map(members.map((m) => [m.id, m])),
+      names: new Map(members.map((m) => [m.id, m.name])),
+      find: createMemberFinder(members),
+    };
+    return this.cachedDirectory;
+  }
+
+  /**
+   * Everyone who wrote in the window, plus the people the target message tags or names
+   * ("parle-moi de jp") and those tagged earlier, so their profile is at hand.
+   */
+  private async participants(history: TranscriptMessage[], target: Message, directory: Directory): Promise<Participant[]> {
+    const { selfId } = this.deps;
     const people = new Map<string, { name: string; isBot: boolean }>();
     for (const m of history) if (!m.isSelf) people.set(m.authorId, { name: m.authorName, isBot: m.authorIsBot });
     people.set(target.author.id, { name: target.member?.displayName ?? target.author.username, isBot: target.author.bot });
+    const mentioned = [
+      ...target.mentions.users.keys(),
+      ...directory.find(target.content, MAX_MENTIONED),
+      ...history.flatMap((m) => ("mentionedIds" in m && Array.isArray(m.mentionedIds) ? (m.mentionedIds as string[]) : [])),
+    ];
+    let added = 0;
+    for (const id of mentioned) {
+      const member = directory.byId.get(id);
+      if (added >= MAX_MENTIONED || id === selfId || people.has(id) || !member) continue;
+      people.set(id, { name: member.name, isBot: member.isBot });
+      added += 1;
+    }
     const contexts = await memberContexts(this.deps.db, [...people.keys()]);
     return [...people].map(([id, info]) => {
       const ctx = contexts.get(id);

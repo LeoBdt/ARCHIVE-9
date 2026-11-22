@@ -1,7 +1,7 @@
 import { truncate, type FactCategory, type FactNature } from "@archive-9/core";
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { SUMMARY_SYSTEM } from "./prompts/analysis.ts";
+import { SERVER_SUMMARY_SYSTEM, SUMMARY_SYSTEM } from "./prompts/analysis.ts";
 import type { ModelRef } from "./routes.ts";
 import type { AiRuntime } from "./runtime.ts";
 import { readStructured } from "./structured.ts";
@@ -18,6 +18,8 @@ export interface SummaryFact {
 export interface SummaryInput {
   name: string;
   isBot: boolean;
+  /** The server's own profile. */
+  isServer?: boolean;
   feeling: string | null;
   /** Most recent first. */
   facts: SummaryFact[];
@@ -51,8 +53,11 @@ export function buildSummaryPrompt(input: SummaryInput): string {
     const nature = f.nature === "reported" && f.reportedByName ? `rapporté par ${f.reportedByName}` : NATURES[f.nature];
     return `- [${f.category} · ${nature} · ${f.confidence.toFixed(1)}] ${f.content}`;
   });
-  return `Membre : ${input.name}${input.isBot ? " (un autre bot IA du serveur)" : ""}
-${input.feeling ? `Ce qu'ARCHIVE-9 ressent pour lui : ${input.feeling}\n` : ""}
+  const header = input.isServer
+    ? `Serveur : ${input.name}\n`
+    : `Membre : ${input.name}${input.isBot ? " (un autre bot IA du serveur)" : ""}
+${input.feeling ? `Ce qu'ARCHIVE-9 ressent pour lui : ${input.feeling}\n` : ""}`;
+  return `${header}
 <donnees>
 ${facts.join("\n")}
 </donnees>`;
@@ -60,12 +65,13 @@ ${facts.join("\n")}
 
 export async function summarise(ai: AiRuntime, input: SummaryInput): Promise<SummaryOutcome> {
   const prompt = buildSummaryPrompt(input);
+  const instructions = input.isServer ? SERVER_SUMMARY_SYSTEM : SUMMARY_SYSTEM;
   const outcome = await ai.generate(
     "analysis",
     ({ model, providerOptions }) =>
       generateText({
         model,
-        instructions: SUMMARY_SYSTEM,
+        instructions,
         prompt,
         output: Output.object({ schema: summarySchema }),
         providerOptions,
@@ -74,12 +80,13 @@ export async function summarise(ai: AiRuntime, input: SummaryInput): Promise<Sum
         temperature: 0.4,
       }),
     {
-      estimatedTokens: Math.ceil((SUMMARY_SYSTEM.length + prompt.length) / 3) + 600,
+      estimatedTokens: Math.ceil((instructions.length + prompt.length) / 3) + 600,
       accept: (result) => readStructured(result, summarySchema) !== null,
     },
   );
   if (!outcome.ok) return { summary: null, ref: null, usage: outcome.usage };
   const raw = readStructured(outcome.result, summarySchema);
-  const summary = raw ? { summary: truncate(raw.summary.trim(), 700), tagline: truncate(raw.tagline.trim(), 140) } : null;
+  const max = input.isServer ? 1_000 : 700;
+  const summary = raw ? { summary: truncate(raw.summary.trim(), max), tagline: truncate(raw.tagline.trim(), 140) } : null;
   return { summary: summary?.summary ? summary : null, ref: outcome.ref, usage: outcome.usage };
 }

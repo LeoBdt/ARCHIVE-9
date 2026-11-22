@@ -14,7 +14,7 @@ import {
   saveSummary,
   type AnalysisWrite,
 } from "./learning.ts";
-import { ensureMember, getMember, upsertMember } from "./members.ts";
+import { ensureMember, ensureServerProfile, getMember, memberDirectory, upsertMember } from "./members.ts";
 import {
   contextBefore,
   existingMessageIds,
@@ -150,6 +150,24 @@ describe.skipIf(!url)("learning repositories", () => {
     await applyAnalysis(db, write({ relationships: [relation()], at: at(24 * 60 + 1) }));
     expect((await participantProfiles(db, ["1"], 5))[0]?.affinity).toBe(20);
     expect((await relationshipEventsSince(db, at(0), 10))[0]).toMatchObject({ memberName: "tom", affinityDelta: 5 });
+  });
+
+  it("keeps a profile row for the server", async () => {
+    await ensureServerProfile(db, "500", "Royaume");
+    await ensureServerProfile(db, "500", "Le Royaume");
+    expect(await getMember(db, "500")).toMatchObject({ username: "Le Royaume", isServer: true, isBot: false });
+    expect((await participantProfiles(db, ["500"], 5))[0]).toMatchObject({ isServer: true, name: "Le Royaume" });
+  });
+
+  it("lists the members ARCHIVE-9 may talk about, with their names", async () => {
+    await upsertMember(db, { id: "6", username: "music", displayName: null, isBot: true, isKnownAiBot: false });
+    await upsertMember(db, { id: "7", username: "jp", displayName: "Jean Pascal", isBot: true, isKnownAiBot: true });
+    const directory = await memberDirectory(db);
+    const ids = directory.map((m) => m.id);
+    expect(ids).toContain("7");
+    expect(ids).not.toContain("6");
+    expect(ids).not.toContain("500");
+    expect(directory.find((m) => m.id === "7")).toMatchObject({ name: "Jean Pascal", names: ["Jean Pascal", "jp"] });
   });
 
   it("never writes about opted-out members", async () => {

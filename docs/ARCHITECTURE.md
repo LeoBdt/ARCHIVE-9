@@ -69,8 +69,8 @@ flowchart TD
 - A weak name (`BOT_SOFT_ALIASES`, e.g. « archive », also a common verb) sends the message to triage instead.
 - In observer mode, messages still go to triage for 3 minutes after ARCHIVE-9 spoke in the channel.
 - **Triage** gets the last 10 messages and a note computed by the code (whether ARCHIVE-9 is in the conversation, who it answered, who wrote since, who the message replies to, weak name match), and returns `{ addressed, interest, reason, toolPacks }`, validated with zod. `addressed` means the message is for ARCHIVE-9; `interest` (0–10) is the value of an unprompted intervention. Within a burst, the last human message stays the target even if a bot answers right after.
-- Transcripts show who each reply is for (`↪ à Dave`).
-- **Reply** gets the last 20 messages, the participants' profile summaries and relationships, the current self state, and a short memory: what the target author said in the last 6 hours outside those 20 messages (other channels, DMs) with ARCHIVE-9's replies, up to 10 messages. All of it is built by the code. The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
+- Transcripts show who each reply is for (`↪ à Dave`) and tags as `@Name`.
+- **Reply** gets the last 20 messages, the participants' profile summaries and relationships, the current self state, the profiles of people the message tags or names (by name, former name, first name of 3+ letters or initials such as "jp", up to 5), and a short memory: what the target author said in the last 6 hours outside those 20 messages (other channels, DMs) with ARCHIVE-9's replies, up to 10 messages. All of it is built by the code. The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
 - The bot loop guard allows at most 3 consecutive replies to bots in a channel without a human, one reply to a bot per 30 s, and 40 per day.
 - While the reply is being generated, the typing indicator is shown.
 
@@ -120,6 +120,7 @@ flowchart LR
 - Relationship changes are capped at ±5 per batch and ±15 per member over 24 hours, counted from when the conversation happened. Relationship rows created by the analysis don't count as an introduction.
 - A batch is written in one transaction, which also marks its messages as analysed. Then each member whose facts changed gets a new summary (≤ 700 characters, read by the reply prompt) and a tagline (one line in ARCHIVE-9's voice, shown in `/mafiche`). A member with no fact left loses their summary.
 - Utility bots get no profile. Known AI bots do.
+- The server has its own profile: a `members` row keyed by the guild ID with `is_server`, listed among the participants of every batch. Group-level facts go there (history, events, traditions, collective jokes, vocabulary), never as `reported`, and it has no relationship. Its summary (≤ 1000 characters) leaves out the fixed description of the server (`packages/ai/src/prompts/server.ts`), which is part of the persona and of the analysis and summary instructions.
 - Analysis spending is capped by `ANALYSIS_DAILY_BUDGET_USD` over the last 24 hours. A failed batch stays pending and is retried an hour later. A Postgres advisory lock keeps two processes from analysing at once.
 - After each run, `pg_notify('archive9', …)` announces the change.
 
@@ -140,9 +141,10 @@ docker compose exec bot node src/backfill.ts --days 30 --dry-run    # counts and
 docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.5
 docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.1 --channel <id>
 docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.5 --reflect
+docker compose exec bot node src/backfill.ts --days 30 --max-cost 0.1 --server
 ```
 
-Batches run one after the other, about 30 seconds each, so a month of history takes most of an hour; summaries are refreshed every 15 batches, so an interrupted run keeps what it did and a rerun finishes the rest. `--reflect` then reads the whole period (up to 400 messages, the conversations with the most reactions first, plus up to 60 facts) to build a first self state, with up to 5 additions per list. It is saved as an `initial` version, so the evening reflection still runs that day.
+Batches run one after the other, about 30 seconds each, so a month of history takes most of an hour; summaries are refreshed every 15 batches, so an interrupted run keeps what it did and a rerun finishes the rest. `--reflect` then reads the whole period (up to 400 messages, the conversations with the most reactions first, plus up to 60 facts) to build a first self state, with up to 5 additions per list, and returns up to 15 facts for the server's profile. `--server` does the same reading for the server's profile only and leaves the self state as it is. It is saved as an `initial` version, so the evening reflection still runs that day.
 
 It holds the analysis lock for the whole run. When `--max-cost` is reached, the remaining backfilled messages are kept but marked as analysed, so the bot doesn't analyse them on its own budget. Useful at first start, after adding a channel, or after the bot was offline.
 
@@ -152,9 +154,10 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 |---|---|---|
 | `/archive-9` | everyone | introduction |
 | `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
+| `/serveur` | everyone | what ARCHIVE-9 knows about the server: its fixed description and learned summary |
 | `/oublie-moi` | everyone | deletes the member's messages (their DM conversations entirely), facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
-| `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
+| `/config etat \| ecoute \| serveur \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, describe the server (a form, up to 2000 characters), spontaneity level, fallback tag |
 | Diagnostic (message menu) | everyone | model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |
 
 ### Spontaneity
@@ -176,7 +179,7 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 
 | Table | Content |
 |---|---|
-| `members` | members and bots seen on the server, nickname history, opt-out |
+| `members` | members and bots seen on the server, nickname history, opt-out; one row for the server's own profile |
 | `messages` | raw messages from listened channels, with reactions and analysis status |
 | `profile_facts` | one learned fact per row: category, nature, confidence, sources, reporter; a correction replaces a row through `superseded_by` |
 | `profile_summaries` | short summary of each profile, used in replies, and a tagline |

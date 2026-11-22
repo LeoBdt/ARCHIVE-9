@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { INITIAL_SELF_STATE, reflect } from "@archive-9/ai";
 import { applySelfStateChange, groupConversations, SELF_STATE_LIMITS } from "@archive-9/core";
 import {
+  applyAnalysis,
   currentSelfState,
   factsSince,
+  memberNames,
   messagesSince,
   notify,
   recordAiUsage,
@@ -11,7 +13,8 @@ import {
   saveSelfState,
   type StoredMessage,
 } from "@archive-9/db";
-import type { LearningDeps } from "./analyse.ts";
+import { refreshSummaries, type LearningDeps } from "./analyse.ts";
+import { loadServerContext } from "./server.ts";
 
 const DAY = 24 * 60 * 60_000;
 
@@ -45,7 +48,7 @@ const MODES = {
   awakening: { maxMessages: 400, facts: 60, limits: { ...SELF_STATE_LIMITS, changesPerList: 5 }, source: "initial" },
 } as const;
 
-async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", since: Date): Promise<boolean> {
+async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", since: Date, keepSelfState = false): Promise<boolean> {
   const { db, ai, log, selfId } = deps;
   const config = MODES[mode];
   const messages = await messagesSince(db, selfId, since, 20_000);
@@ -54,17 +57,22 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     return false;
   }
 
-  const [state, learned, changes] = await Promise.all([
+  const [server, state, learned, changes] = await Promise.all([
+    loadServerContext(db, deps.server),
     currentSelfState(db, INITIAL_SELF_STATE),
     factsSince(db, since, config.facts),
     mode === "evening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
   ]);
+  const picked = pickConversations(messages, config.maxMessages, mode);
+  const people = new Set(picked.flat().flatMap((m) => [m.authorId, ...m.mentionedIds]));
   const outcome = await reflect(ai, {
     mode,
+    names: await memberNames(db, [...people]),
     now: new Date(),
     timezone: deps.timezone,
+    server,
     state,
-    conversations: pickConversations(messages, config.maxMessages, mode).map((c) => ({
+    conversations: picked.map((c) => ({
       channelName: c[0]?.guildId === null ? "message privé" : deps.channelName(c[0]?.channelId ?? ""),
       messages: c,
     })),
@@ -75,6 +83,20 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
   await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId, detail: mode })));
   if (!outcome.change) throw new Error(`${mode} reflection produced no usable output`);
 
+  if (server && outcome.serverFacts.length > 0) {
+    await applyAnalysis(db, {
+      facts: outcome.serverFacts.map((f) => ({ ...f, memberId: server.id, sourceMessageIds: [], reportedBy: null, replacesId: null })),
+      retractions: [],
+      relationships: [],
+      analysedIds: [],
+      at: new Date(),
+    });
+    const cost = { costUsd: 0 };
+    await refreshSummaries(deps, [server.id], cost);
+    log.info({ facts: outcome.serverFacts.length }, "server profile seeded");
+  }
+
+  if (keepSelfState) return true;
   const next = applySelfStateChange(state, outcome.change, config.limits);
   const version = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);
   await notify(db, { type: "self_state", version });
@@ -87,7 +109,10 @@ export async function runReflection(deps: LearningDeps): Promise<boolean> {
   return reflectOn(deps, "evening", new Date(Date.now() - DAY));
 }
 
-/** A first self state built from a whole history, after a backfill. */
-export async function runAwakening(deps: LearningDeps, since: Date): Promise<boolean> {
-  return reflectOn(deps, "awakening", since);
+/**
+ * A first self state built from a whole history, after a backfill. With `serverOnly`, the
+ * history only feeds the server's profile and the self state is left as it is.
+ */
+export async function runAwakening(deps: LearningDeps, since: Date, options: { serverOnly?: boolean } = {}): Promise<boolean> {
+  return reflectOn(deps, "awakening", since, options.serverOnly);
 }
