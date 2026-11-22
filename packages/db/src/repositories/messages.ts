@@ -1,5 +1,5 @@
 import type { MessageReactions, TranscriptMessage } from "@archive-9/core";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, max, min, ne, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, max, min, ne, notInArray, or, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client.ts";
 import { members, messages } from "../schema.ts";
@@ -18,6 +18,8 @@ export interface MessageInput {
 
 /** A stored message, ready for `formatTranscript`. */
 export interface StoredMessage extends TranscriptMessage {
+  /** Null for direct messages. */
+  guildId: string | null;
   channelId: string;
   mentionedIds: string[];
   reactions: MessageReactions;
@@ -65,6 +67,9 @@ export async function deleteMessages(db: Database, ids: string[]): Promise<void>
   if (ids.length > 0) await db.delete(messages).where(inArray(messages.id, ids));
 }
 
+const replied = alias(messages, "replied");
+const repliedAuthor = alias(members, "replied_author");
+
 async function selectStored(
   db: Database,
   selfId: string,
@@ -72,11 +77,10 @@ async function selectStored(
   order: "asc" | "desc",
   limit: number,
 ): Promise<StoredMessage[]> {
-  const replied = alias(messages, "replied");
-  const repliedAuthor = alias(members, "replied_author");
   const rows = await db
     .select({
       id: messages.id,
+      guildId: messages.guildId,
       channelId: messages.channelId,
       authorId: messages.authorId,
       username: members.username,
@@ -100,6 +104,7 @@ async function selectStored(
     .limit(limit);
   const result = rows.map((row) => ({
     id: row.id,
+    guildId: row.guildId,
     channelId: row.channelId,
     authorId: row.authorId,
     authorName: row.displayName ?? row.username,
@@ -145,6 +150,29 @@ export async function contextBefore(
     ),
     "desc",
     limit,
+  );
+}
+
+/**
+ * What a member said recently outside `excludeIds`, and ARCHIVE-9's replies to them, oldest
+ * first. Gives the bot a short memory across channels and DMs before the analysis runs.
+ */
+export async function recentWithMember(
+  db: Database,
+  selfId: string,
+  memberId: string,
+  options: { since: Date; excludeIds: string[]; limit: number },
+): Promise<StoredMessage[]> {
+  return selectStored(
+    db,
+    selfId,
+    and(
+      gte(messages.createdAt, options.since),
+      options.excludeIds.length > 0 ? notInArray(messages.id, options.excludeIds) : undefined,
+      or(eq(messages.authorId, memberId), and(eq(messages.authorId, selfId), eq(replied.authorId, memberId))),
+    ),
+    "desc",
+    options.limit,
   );
 }
 

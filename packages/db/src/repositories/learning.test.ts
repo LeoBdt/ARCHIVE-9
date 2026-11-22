@@ -24,6 +24,7 @@ import {
   pendingMessages,
   pendingStats,
   purgeMessages,
+  recentWithMember,
 } from "./messages.ts";
 import { forgetMember, profileOverview } from "./profiles.ts";
 import { currentSelfState, lastReflectionAt, saveSelfState } from "./self-state.ts";
@@ -159,6 +160,22 @@ describe.skipIf(!url)("learning repositories", () => {
     expect(await participantProfiles(db, ["4"], 5)).toEqual([]);
     await ensureMember(db, { id: "4", username: "other", displayName: null, isBot: false, isKnownAiBot: false });
     expect((await getMember(db, "4"))?.username).toBe("zoe");
+  });
+
+  it("remembers what a member said elsewhere, with ARCHIVE-9's replies", async () => {
+    const recent = new Date(Date.now() - 60_000);
+    await insertMessages(db, [
+      { ...message("s1", "3", 0, "dm-3"), guildId: null, createdAt: recent },
+      { ...message("s2", SELF, 0, "dm-3"), guildId: null, replyToId: "s1", createdAt: new Date(recent.getTime() + 1_000) },
+      { ...message("s3", "2", 0, "c9"), createdAt: recent },
+      { ...message("s4", "3", 0, "c9"), createdAt: new Date(recent.getTime() + 2_000) },
+    ]);
+    const memory = await recentWithMember(db, SELF, "3", { since: new Date(Date.now() - 3_600_000), excludeIds: ["s4"], limit: 10 });
+    expect(memory.map((m) => [m.id, m.guildId])).toEqual([["s1", null], ["s2", null]]);
+    expect(await recentWithMember(db, SELF, "3", { since: new Date(), excludeIds: [], limit: 10 })).toEqual([]);
+
+    await forgetMember(db, "3");
+    expect(await existingMessageIds(db, ["s1", "s2", "s3", "s4"])).toEqual(new Set(["s3"]));
   });
 
   it("saves and deletes summaries", async () => {

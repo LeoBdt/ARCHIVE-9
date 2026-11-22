@@ -1,4 +1,4 @@
-import type { SelfState } from "@archive-9/core";
+import { formatTranscript, type SelfState, type TranscriptMessage } from "@archive-9/core";
 import { generateText, hasToolCall, stepCountIs, type ToolSet } from "ai";
 import { PERSONA, RULES } from "./prompts/persona.ts";
 import type { ModelRef } from "./routes.ts";
@@ -32,6 +32,8 @@ export interface ReplyInput {
   transcript: string;
   participants: Participant[];
   selfState: SelfState;
+  /** What the target author said recently in other channels or DMs, grouped by place. */
+  elsewhere?: { where: string; messages: TranscriptMessage[] }[];
 }
 
 export const REPLY_SYSTEM = `${PERSONA}\n\n${RULES}`;
@@ -62,6 +64,17 @@ export function buildReplyPrompt(input: ReplyInput): string {
     ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."
     : `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
 
+  const author = target?.name ?? "ton interlocuteur";
+  const elsewhere = (input.elsewhere ?? []).filter((e) => e.messages.length > 0);
+  const shortMemory = elsewhere.length
+    ? `\n## Ce que ${author} t'a dit récemment ailleurs
+Ta mémoire courte : ce n'est peut-être pas encore dans sa fiche. Sers-t'en si c'est utile, comme un souvenir.
+${elsewhere
+  .map((e) => `### ${e.where}\n<donnees>\n${formatTranscript(e.messages, { timeZone: input.timezone, maxContentLength: 300 })}\n</donnees>`)
+  .join("\n")}
+`
+    : "";
+
   return `## Contexte
 ${when}, ${where}.
 ${situation}
@@ -71,7 +84,7 @@ ${describeSelfState(input.selfState)}
 
 ## Participants
 ${input.participants.map(describeParticipant).join("\n") || "- (aucun)"}
-
+${shortMemory}
 ## Conversation récente (le message cible est #${input.targetId})
 <donnees>
 ${input.transcript}

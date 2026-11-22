@@ -132,7 +132,7 @@ async function forgetMe(i: ChatInputCommandInteraction) {
     new ButtonBuilder().setCustomId(`cancel:${i.user.id}`).setLabel("Annuler").setStyle(ButtonStyle.Secondary),
   );
   await i.reply({
-    content: "Je supprime tes messages archivés, ta fiche, notre relation, et je ne retiendrai plus rien de toi. C'est définitif. Sûr ?",
+    content: "Je supprime tes messages archivés (MP compris), ta fiche, notre relation, et je ne retiendrai plus rien de toi. C'est définitif. Sûr ?",
     components: [row],
     flags: ephemeral,
   });

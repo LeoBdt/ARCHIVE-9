@@ -87,7 +87,7 @@ describe.skipIf(!url)("learning cycle", () => {
   });
 
   it("learns from settled conversations and rewrites the profile", async () => {
-    const report = await runAnalysis(deps, { budgetUsd: 1, settleMs: 10 * 60_000 });
+    const report = await runAnalysis(deps, { budgetUsd: 1, includeOngoing: false });
     expect(report).toMatchObject({ batches: 1, messages: 2, facts: 1, summaries: 1, failed: false, budgetReached: false });
     expect(report.costUsd).toBeCloseTo(0.002);
 
@@ -104,7 +104,10 @@ describe.skipIf(!url)("learning cycle", () => {
   });
 
   it("stops at the budget", async () => {
-    const report = await runAnalysis(deps, { budgetUsd: 0 });
+    await insertMessages(conn.db, [
+      { id: "m4", guildId: null, channelId: "dm", authorId: "1", content: "en privé", replyToId: null, mentionedIds: [], createdAt: new Date(Date.now() - 30 * 60_000) },
+    ]);
+    const report = await runAnalysis(deps, { budgetUsd: 0, includeOngoing: true });
     expect(report).toMatchObject({ batches: 0, budgetReached: true });
   });
 

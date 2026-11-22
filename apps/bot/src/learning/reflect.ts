@@ -54,7 +54,10 @@ export async function runReflection(deps: LearningDeps): Promise<boolean> {
     now,
     timezone: deps.timezone,
     state,
-    conversations: pickConversations(messages).map((c) => ({ channelName: deps.channelName(c[0]?.channelId ?? ""), messages: c })),
+    conversations: pickConversations(messages).map((c) => ({
+      channelName: c[0]?.guildId === null ? "message privé" : deps.channelName(c[0]?.channelId ?? ""),
+      messages: c,
+    })),
     learned: learned.map((f) => ({ name: f.memberName, nature: f.nature, content: f.content })),
     relationshipChanges: changes.map((r) => ({ name: r.memberName, affinityDelta: r.affinityDelta, trustDelta: r.trustDelta, reason: r.reason })),
   });

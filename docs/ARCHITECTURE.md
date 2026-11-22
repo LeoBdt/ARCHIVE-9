@@ -64,13 +64,13 @@ flowchart TD
   R --> OUT[send tools]
 ```
 
-- Messages from listened channels (and their threads) are stored, along with edits, deletions and reaction counts. DMs are answered but never stored. Opted-out members are never stored.
+- Messages from listened channels (and their threads) and DMs are stored, along with edits, deletions and reaction counts. DMs are learned from like any channel. Opted-out members are never stored.
 - A message is **addressed** to ARCHIVE-9 without AI when it mentions it, contains a strong name (`BOT_ALIASES`, ignored after an apostrophe), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between.
 - A weak name (`BOT_SOFT_ALIASES`, e.g. « archive », also a common verb) sends the message to triage instead.
 - In observer mode, messages still go to triage for 3 minutes after ARCHIVE-9 spoke in the channel.
 - **Triage** gets the last 10 messages and a note computed by the code (whether ARCHIVE-9 is in the conversation, who it answered, who wrote since, who the message replies to, weak name match), and returns `{ addressed, interest, reason, toolPacks }`, validated with zod. `addressed` means the message is for ARCHIVE-9; `interest` (0–10) is the value of an unprompted intervention. Within a burst, the last human message stays the target even if a bot answers right after.
 - Transcripts show who each reply is for (`↪ à Dave`).
-- **Reply** gets the last 20 messages, the participants' profile summaries and relationships, and the current self state, all built by the code. The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
+- **Reply** gets the last 20 messages, the participants' profile summaries and relationships, the current self state, and a short memory: what the target author said in the last 6 hours outside those 20 messages (other channels, DMs) with ARCHIVE-9's replies, up to 10 messages. All of it is built by the code. The model speaks only by calling `sendReply` or `sendMessage`; no call means silence. Tools are bound to the current channel and target message.
 - The bot loop guard allows at most 3 consecutive replies to bots in a channel without a human, one reply to a bot per 30 s, and 40 per day.
 - While the reply is being generated, the typing indicator is shown.
 
@@ -97,7 +97,7 @@ Background jobs run in the bot process every 5 minutes.
 
 ```mermaid
 flowchart LR
-  M[(messages)] -->|pending, settled 10 min| G[group into conversations]
+  M[(messages)] -->|pending| G[finished conversations]
   G --> B[batches of ≤ 120 messages]
   B --> A[analysis · DeepSeek]
   A --> S{sanitise}
@@ -113,8 +113,8 @@ flowchart LR
 
 ### Analysis
 
-- Runs when the oldest pending message is 4 hours old, or when a member has 25 pending messages. Messages younger than 10 minutes wait for the next run, their conversation may still be going.
-- Pending messages are grouped into conversations (same channel, no silence longer than 15 minutes). Small conversations share a batch; long ones are split. Each conversation comes with up to 6 earlier, already analysed messages as context.
+- Pending messages are grouped into conversations (same channel, no silence longer than 15 minutes). A conversation is analysed once it is finished, after 15 minutes of silence. One that keeps going is analysed anyway when its first message is an hour old, and so are all ongoing ones when a member has 25 pending messages or before the evening reflection; the last 10 minutes are then left for later.
+- Small conversations share a batch; long ones are split. Each conversation comes with up to 6 earlier, already analysed messages as context.
 - The model gets the participants (summary, relationship, up to 20 current facts with short references `F1`, `F2`…) and the transcripts with reactions, and returns facts, retractions and relationship changes as JSON validated with zod.
 - The output is sanitised by the code before anything is written: facts must be about a listed participant, other than ARCHIVE-9 and not opted out, and cite messages of the batch; a self-declared `fact` cited from someone else's message becomes `reported`, with its reporter; a correction can only replace a fact of the same member; at most 20 facts per batch.
 - Relationship changes are capped at ±5 per batch and ±15 per member over 24 hours, counted from when the conversation happened. Relationship rows created by the analysis don't count as an introduction.
@@ -133,7 +133,7 @@ Every 6 hours, raw messages older than `MESSAGE_RETENTION_DAYS` (30 by default) 
 
 ### History backfill
 
-`src/backfill.ts` reads the history of the listened channels (and their active threads) through the Discord REST API, stores the messages that are missing and analyses them. It skips opted-out members and command answers, and never goes further back than the retention period.
+`src/backfill.ts` reads the history of the listened channels (and their active threads, not DMs) through the Discord REST API, stores the messages that are missing and analyses them. It skips opted-out members and command answers, and never goes further back than the retention period.
 
 ```sh
 docker compose exec bot node src/backfill.ts --days 30 --dry-run    # counts and estimates the cost
@@ -149,7 +149,7 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 |---|---|---|
 | `/archive-9` | everyone | introduction |
 | `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
-| `/oublie-moi` | everyone | deletes the member's messages, facts, summary and relationship after confirmation, then opts them out |
+| `/oublie-moi` | everyone | deletes the member's messages (their DM conversations entirely), facts, summary and relationship after confirmation, then opts them out |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
 | `/config etat \| ecoute \| spontaneite \| mention-secours` | Manage Server | show settings, toggle the current channel, spontaneity level, fallback tag |
 | Diagnostic (message menu) | everyone | model, provider, triage reason, tokens, cost and latency behind one of ARCHIVE-9's messages |

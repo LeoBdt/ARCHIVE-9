@@ -1,20 +1,44 @@
-const HOUR = 60 * 60_000;
+import type { ChannelMessage } from "./conversations.ts";
 
-export const ANALYSIS_TRIGGER = {
-  /** Analyse once the oldest pending message is this old. */
-  maxWaitMs: 4 * HOUR,
-  /** Or as soon as one member has this many pending messages. */
+const MINUTE = 60_000;
+
+export const ANALYSIS_TIMING = {
+  /** A conversation is over after this much silence in its channel. */
+  finishedAfterMs: 15 * MINUTE,
+  /** A conversation that never stops is analysed anyway once its first message is this old. */
+  maxWaitMs: 60 * MINUTE,
+  /** The last messages of an ongoing conversation are left for later. */
+  settleMs: 10 * MINUTE,
+  /** One member with this many pending messages makes ongoing conversations ready too. */
   memberThreshold: 25,
 };
 
-export interface PendingStats {
-  oldestAt: Date | null;
-  maxPerMember: number;
-}
+export type AnalysisTiming = typeof ANALYSIS_TIMING;
 
-export function analysisDue(stats: PendingStats, now: Date, trigger = ANALYSIS_TRIGGER): boolean {
-  if (!stats.oldestAt) return false;
-  return stats.maxPerMember >= trigger.memberThreshold || now.getTime() - stats.oldestAt.getTime() >= trigger.maxWaitMs;
+/**
+ * Keeps the conversations ready for analysis: finished ones in full, and the settled part of
+ * ongoing ones that started too long ago (or of every ongoing one when `includeOngoing`).
+ */
+export function readyConversations<T extends ChannelMessage>(
+  conversations: readonly T[][],
+  now: Date,
+  includeOngoing: boolean,
+  timing: AnalysisTiming = ANALYSIS_TIMING,
+): T[][] {
+  const ready: T[][] = [];
+  for (const conversation of conversations) {
+    const first = conversation[0];
+    const last = conversation.at(-1);
+    if (!first || !last) continue;
+    if (now.getTime() - last.createdAt.getTime() >= timing.finishedAfterMs) {
+      ready.push(conversation);
+      continue;
+    }
+    if (!includeOngoing && now.getTime() - first.createdAt.getTime() < timing.maxWaitMs) continue;
+    const settled = conversation.filter((m) => now.getTime() - m.createdAt.getTime() >= timing.settleMs);
+    if (settled.length > 0) ready.push(settled);
+  }
+  return ready;
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>();

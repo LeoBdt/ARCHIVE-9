@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { analyse, summarise, type AiRuntime, type AnalysisConversation, type UsageRecord } from "@archive-9/ai";
-import { CONVERSATION_GAP_MS, groupConversations, packConversations } from "@archive-9/core";
+import { CONVERSATION_GAP_MS, groupConversations, packConversations, readyConversations } from "@archive-9/core";
 import {
   applyAnalysis,
   contextBefore,
@@ -29,8 +29,8 @@ export interface LearningDeps {
 export interface AnalysisOptions {
   /** Stop starting new batches once this much has been spent, in USD. */
   budgetUsd: number;
-  /** Leave messages younger than this for later, their conversation may still be going. */
-  settleMs?: number;
+  /** Also analyse conversations still going on (their settled part). */
+  includeOngoing: boolean;
   /** Called after each batch, e.g. to print progress. */
   onBatch?: (progress: { messages: number; costUsd: number }) => void;
 }
@@ -85,10 +85,11 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
   const touched = new Set<string>();
 
   analysis: for (;;) {
-    const pending = await pendingMessages(db, selfId, new Date(Date.now() - (options.settleMs ?? 0)), PASS_MESSAGES);
-    if (pending.length === 0) break;
+    const now = new Date();
+    const ready = readyConversations(groupConversations(await pendingMessages(db, selfId, now, PASS_MESSAGES)), now, options.includeOngoing);
+    if (ready.length === 0) break;
 
-    for (const batch of packConversations(groupConversations(pending), BATCH_MESSAGES)) {
+    for (const batch of packConversations(ready, BATCH_MESSAGES)) {
       if (report.costUsd >= options.budgetUsd) {
         report.budgetReached = true;
         break analysis;
@@ -96,7 +97,7 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
       const conversations: AnalysisConversation[] = await Promise.all(
         batch.flatMap((messages) => (messages[0] ? [{ first: messages[0], messages }] : [])).map(async ({ first, messages }) => {
           return {
-            channelName: deps.channelName(first.channelId),
+            channelName: first.guildId === null ? "message privé" : deps.channelName(first.channelId),
             context: await contextBefore(
               db,
               selfId,

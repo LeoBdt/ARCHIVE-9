@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { groupConversations, packConversations } from "./conversations.ts";
 import { applyAffinity, applyTrust, capDelta } from "./relationship.ts";
-import { analysisDue, localDayAndHour, reflectionDue } from "./schedule.ts";
+import { localDayAndHour, readyConversations, reflectionDue } from "./schedule.ts";
 import { applySelfStateChange } from "./self-state.ts";
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 10, 0) + minutes * 60_000);
@@ -82,13 +82,24 @@ describe("applySelfStateChange", () => {
   });
 });
 
-describe("analysisDue", () => {
-  const now = at(600);
-  it("waits for old messages or a busy member", () => {
-    expect(analysisDue({ oldestAt: null, maxPerMember: 0 }, now)).toBe(false);
-    expect(analysisDue({ oldestAt: at(500), maxPerMember: 3 }, now)).toBe(false);
-    expect(analysisDue({ oldestAt: at(500), maxPerMember: 25 }, now)).toBe(true);
-    expect(analysisDue({ oldestAt: at(360), maxPerMember: 1 }, now)).toBe(true);
+describe("readyConversations", () => {
+  const now = at(120);
+  const conv = (...minutes: number[]) => minutes.map((m, i) => ({ id: `${String(m)}-${String(i)}`, channelId: "c", createdAt: at(m) }));
+  const ids = (list: { createdAt: Date }[][]) => list.map((c) => c.map((m) => (m.createdAt.getTime() - at(0).getTime()) / 60_000));
+
+  it("takes finished conversations in full", () => {
+    expect(ids(readyConversations([conv(90, 100, 105)], now, false))).toEqual([[90, 100, 105]]);
+  });
+
+  it("waits for ongoing conversations, unless they started over an hour ago", () => {
+    expect(readyConversations([conv(80, 100, 115)], now, false)).toEqual([]);
+    expect(ids(readyConversations([conv(50, 100, 115)], now, false))).toEqual([[50, 100]]);
+  });
+
+  it("takes the settled part of ongoing conversations when asked", () => {
+    expect(ids(readyConversations([conv(100, 108, 115)], now, true))).toEqual([[100, 108]]);
+    expect(readyConversations([conv(115, 118)], now, true)).toEqual([]);
+    expect(readyConversations([[]], now, true)).toEqual([]);
   });
 });
 

@@ -1,6 +1,7 @@
 import type { MessageReactions } from "@archive-9/core";
 import {
   deleteMessages,
+  ensureMember,
   optedOutIds,
   saveMessage,
   setMessageReactions,
@@ -17,8 +18,9 @@ export interface IngestDeps {
   knownAiBotIds: Set<string>;
 }
 
+/** Listened channels and their threads, plus direct messages. */
 function isArchived(settings: SettingsStore, message: Message | PartialMessage): boolean {
-  if (message.guildId === null) return false;
+  if (message.guildId === null) return true;
   const parentId = "parentId" in message.channel ? message.channel.parentId : null;
   return settings.isListened(message.channelId, parentId);
 }
@@ -32,7 +34,7 @@ function reactionCounts(message: Message | PartialMessage): MessageReactions {
   return counts;
 }
 
-/** Stores messages from listened channels. DMs are never archived. */
+/** Stores messages from listened channels and DMs, except from opted-out members. */
 export class Ingest {
   private readonly deps: IngestDeps;
 
@@ -47,13 +49,15 @@ export class Ingest {
     if (message.flags.has(MessageFlags.Ephemeral) || message.interactionMetadata) return;
     if ((await optedOutIds(db, [message.author.id])).has(message.author.id)) return;
 
-    await upsertMember(db, {
+    const member = {
       id: message.author.id,
       username: message.author.username,
       displayName: message.member?.displayName ?? message.author.globalName,
       isBot: message.author.bot,
       isKnownAiBot: knownAiBotIds.has(message.author.id),
-    });
+    };
+    // A DM carries no server nickname: don't overwrite the one we know.
+    await (message.guildId === null ? ensureMember(db, member) : upsertMember(db, member));
     await saveMessage(db, {
       id: message.id,
       guildId: message.guildId,

@@ -182,6 +182,7 @@ const lock = await withAdvisoryLock(client, ANALYSIS_LOCK, async () => {
     { db, ai, log, selfId: self.id, timezone: env.BOT_TIMEZONE, channelName: (id) => channels.get(id) ?? null },
     {
       budgetUsd: maxCost,
+      includeOngoing: true,
       onBatch: ({ messages: done, costUsd }) => {
         console.log(`  ${String(done)} messages analysed, $${costUsd.toFixed(4)}`);
       },

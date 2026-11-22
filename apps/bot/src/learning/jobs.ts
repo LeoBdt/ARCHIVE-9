@@ -1,5 +1,5 @@
-import { analysisDue, reflectionDue } from "@archive-9/core";
-import { aiCostSince, lastReflectionAt, pendingMessages, pendingStats, purgeMessages, withAdvisoryLock, type SqlClient } from "@archive-9/db";
+import { ANALYSIS_TIMING, reflectionDue } from "@archive-9/core";
+import { aiCostSince, lastReflectionAt, pendingStats, purgeMessages, withAdvisoryLock, type SqlClient } from "@archive-9/db";
 import { runAnalysis, type AnalysisReport, type LearningDeps } from "./analyse.ts";
 import { runReflection } from "./reflect.ts";
 
@@ -15,7 +15,6 @@ export const ANALYSIS_LOCK = 7_309_001;
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const TICK_MS = 5 * MINUTE;
-const SETTLE_MS = 10 * MINUTE;
 const RETRY_MS = 60 * MINUTE;
 const PURGE_EVERY_MS = 6 * 60 * MINUTE;
 
@@ -27,7 +26,7 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
   let analysisRetryAt = 0;
   let reflectionRetryAt = 0;
 
-  async function analyseNow(): Promise<AnalysisReport | null> {
+  async function analyseNow(includeOngoing: boolean): Promise<AnalysisReport | null> {
     if (Date.now() < analysisRetryAt) return null;
     const spent = await aiCostSince(db, ["analysis"], new Date(Date.now() - DAY));
     const budgetUsd = config.analysisDailyBudgetUsd - spent;
@@ -36,7 +35,7 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
       analysisRetryAt = Date.now() + RETRY_MS;
       return null;
     }
-    const lock = await withAdvisoryLock(deps.client, ANALYSIS_LOCK, () => runAnalysis(deps, { budgetUsd, settleMs: SETTLE_MS }));
+    const lock = await withAdvisoryLock(deps.client, ANALYSIS_LOCK, () => runAnalysis(deps, { budgetUsd, includeOngoing }));
     if (!lock.acquired) {
       log.info("analysis already running in another process");
       return null;
@@ -59,9 +58,9 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
       const stats = await pendingStats(db, selfId);
       const reflectNow =
         now.getTime() >= reflectionRetryAt && reflectionDue(now, await lastReflectionAt(db), deps.timezone, config.reflectionHour);
-      // Before reflecting, learn from the day's last conversations.
-      const settled = stats.oldestAt !== null && (await pendingMessages(db, selfId, new Date(now.getTime() - SETTLE_MS), 1)).length > 0;
-      if (settled && (analysisDue(stats, now) || reflectNow)) await analyseNow();
+      // Finished conversations are analysed right away. A very active member, or the evening
+      // reflection, also pulls in the conversations still going on.
+      if (stats.oldestAt) await analyseNow(stats.maxPerMember >= ANALYSIS_TIMING.memberThreshold || reflectNow);
 
       if (reflectNow) {
         try {

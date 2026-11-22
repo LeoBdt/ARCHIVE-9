@@ -83,6 +83,15 @@ describe("buildReplyPrompt", () => {
     expect(prompt).toContain("tu interviens de toi-même");
     expect(prompt).toContain("message privé");
     expect(prompt).toContain("Blagues récurrentes : Tom et ses retards");
+    expect(prompt).not.toContain("récemment ailleurs");
+  });
+
+  it("adds the short memory of the target author", () => {
+    const said = { id: "7", authorId: "1", authorName: "Tom", authorIsBot: false, isSelf: false, content: "j'ai stage lundi", replyToId: null, createdAt: new Date("2026-01-01T18:00:00Z") };
+    const prompt = buildReplyPrompt({ ...baseInput, elsewhere: [{ where: "en message privé", messages: [said] }, { where: "#jeux", messages: [] }] });
+    expect(prompt).toContain("## Ce que Tom t'a dit récemment ailleurs");
+    expect(prompt).toMatch(/### en message privé\n<donnees>\n19:00 #7 \[Tom \(ID 1\)\] : j'ai stage lundi\n<\/donnees>/);
+    expect(prompt).not.toContain("#jeux");
   });
 });
 
