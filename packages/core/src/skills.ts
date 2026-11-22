@@ -40,6 +40,16 @@ export function forbiddenReason(text: string): string | null {
   return null;
 }
 
+const PRIVATE = /(@[\w-]+\.[a-z]{2,}|https?:\/\/|(?:\+?\d[\s.-]?){9,})/i;
+
+/** A member's own version of a fact: short, no contact details, nothing against the rules. */
+export function checkOwnFactText(text: string): string | null {
+  const clean = text.trim();
+  if (clean.length < 3 || clean.length > 200) return "entre 3 et 200 caractères";
+  if (PRIVATE.test(clean)) return "pas d'adresse, de lien ni de numéro";
+  return forbiddenReason(clean);
+}
+
 export type DraftCheck = { ok: true; draft: SkillDraft } | { ok: false; reason: string };
 
 /** Cleans a skill proposed by the model and applies the rules the code can check alone. */
