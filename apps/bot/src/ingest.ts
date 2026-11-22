@@ -8,7 +8,7 @@ import {
   upsertMember,
   type Database,
 } from "@archive-9/db";
-import type { Message, MessageReaction, PartialMessage, PartialMessageReaction } from "discord.js";
+import { MessageFlags, type Message, type MessageReaction, type PartialMessage, type PartialMessageReaction } from "discord.js";
 import type { SettingsStore } from "./settings.ts";
 
 export interface IngestDeps {
@@ -43,6 +43,8 @@ export class Ingest {
   async onCreate(message: Message): Promise<void> {
     const { db, settings, knownAiBotIds } = this.deps;
     if (!isArchived(settings, message)) return;
+    // Command answers (/mafiche…) are system text, sometimes private to one member.
+    if (message.flags.has(MessageFlags.Ephemeral) || message.interactionMetadata) return;
     if ((await optedOutIds(db, [message.author.id])).has(message.author.id)) return;
 
     await upsertMember(db, {

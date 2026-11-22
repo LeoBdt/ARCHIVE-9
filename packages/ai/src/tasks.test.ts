@@ -12,24 +12,30 @@ const chain = parseRoute("groq:main");
 const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain };
 
 describe("triage", () => {
+  const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "", activeConversation: false };
+
   it("returns the validated decision", async () => {
     const decision = { reply: true, reason: "on lui pose une question", toolPacks: ["discord-messages"] };
     const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
-    const outcome = await triage(ai, { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", minutesSinceLastSpoke: null });
-    expect(outcome.ok && outcome.result.output).toEqual(decision);
+    const outcome = await triage(ai, input);
+    expect(outcome.decision).toEqual(decision);
+    expect(outcome.ref?.id).toBe("groq:main");
   });
 
-  it("fails over when the model returns garbage", async () => {
-    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text("pas du json"))) }));
-    const outcome = await triage(ai, { transcript: "x", channelName: null, minutesSinceLastSpoke: 3 });
-    expect(outcome.ok).toBe(false);
-    expect(outcome.usage[0]?.error).toBeTruthy();
+  it("returns no decision instead of throwing when the output is unusable", async () => {
+    for (const content of [text("pas du json"), text(JSON.stringify({ reply: "maybe" })), []]) {
+      const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(content)) }));
+      const outcome = await triage(ai, input);
+      expect(outcome.decision).toBeNull();
+      expect(outcome.usage[0]?.status).toBe("error");
+    }
   });
 
-  it("puts the transcript in the data zone", () => {
-    const prompt = buildTriagePrompt({ transcript: "LIGNE", channelName: "jeux", minutesSinceLastSpoke: 12 });
-    expect(prompt).toContain("il y a 12 min");
+  it("states the case and puts the transcript in the data zone", () => {
+    const prompt = buildTriagePrompt({ transcript: "LIGNE", channelName: "jeux", activeConversation: true, conversationNote: "Il a parlé il y a 12 s." });
+    expect(prompt).toContain("Cas 1. Il a parlé il y a 12 s.");
     expect(prompt).toMatch(/<donnees>\nLIGNE\n<\/donnees>/);
+    expect(buildTriagePrompt({ transcript: "", channelName: null, activeConversation: false, conversationNote: "" })).toContain("Cas 2");
   });
 });
 

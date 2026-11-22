@@ -53,7 +53,10 @@ const DIRECT_FOLLOW_UP_MS = 2 * 60_000;
 interface Exchange {
   at: number;
   withAuthorId: string;
+  withName: string;
   interrupted: boolean;
+  /** Names of those who wrote since ARCHIVE-9's last message. */
+  since: string[];
 }
 
 function channelOf(message: Message): SendableChannels | null {
@@ -109,7 +112,11 @@ export class Pipeline {
       !exchange.interrupted &&
       exchange.withAuthorId === message.author.id &&
       Date.now() - exchange.at < DIRECT_FOLLOW_UP_MS;
-    if (exchange && message.author.id !== selfId && message.author.id !== exchange.withAuthorId) exchange.interrupted = true;
+    if (exchange && message.author.id !== selfId) {
+      if (message.author.id !== exchange.withAuthorId) exchange.interrupted = true;
+      const name = `${message.member?.displayName ?? message.author.username}${message.author.bot ? " [bot]" : ""}`;
+      if (!exchange.since.includes(name)) exchange.since.push(name);
+    }
 
     const optedOut = (await optedOutIds(this.deps.db, [message.author.id])).has(message.author.id);
     const decision = decideIngress(
@@ -161,21 +168,38 @@ export class Pipeline {
     if (this.busyChannels.has(channelId)) return;
 
     const { db, ai, selfId, log } = this.deps;
-    const runId = randomUUID();
-    const history = await recentMessages(db, channelId, selfId, TRIAGE_WINDOW);
-    const lastSpoke = await lastMessageAt(db, channelId, selfId);
-    const outcome = await triage(ai, {
-      transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300 }),
-      channelName: "name" in target.channel ? target.channel.name : null,
-      minutesSinceLastSpoke: lastSpoke ? Math.round((Date.now() - lastSpoke.getTime()) / 60_000) : null,
-    });
+    try {
+      const runId = randomUUID();
+      const history = await recentMessages(db, channelId, selfId, TRIAGE_WINDOW);
+      const exchange = this.lastExchange.get(channelId);
+      const active = exchange !== undefined && Date.now() - exchange.at < ACTIVE_CONVERSATION_MS;
+      const outcome = await triage(ai, {
+        transcript: formatTranscript(history, { targetId: target.id, maxContentLength: 300 }),
+        channelName: "name" in target.channel ? target.channel.name : null,
+        activeConversation: active,
+        conversationNote: await this.conversationNote(channelId, exchange),
+      });
 
-    const decision = outcome.ok ? outcome.result.output : null;
-    await this.saveUsage(runId, outcome.usage, { detail: decision?.reason ?? null });
-    log.debug({ channelId, decision }, "triage");
-    if (!decision?.reply) return;
+      const { decision } = outcome;
+      await this.saveUsage(runId, outcome.usage, { detail: decision?.reason ?? null });
+      log.debug({ channelId, decision }, "triage");
+      if (!decision?.reply) return;
 
-    await this.respond(target, { addressed: false, runId, triageReason: decision.reason, usage: [] });
+      await this.respond(target, { addressed: false, runId, triageReason: decision.reason, usage: [] });
+    } catch (error) {
+      log.error({ err: error, channelId }, "triage failed");
+    }
+  }
+
+  private async conversationNote(channelId: string, exchange: Exchange | undefined): Promise<string> {
+    if (exchange) {
+      const seconds = Math.round((Date.now() - exchange.at) / 1000);
+      const since = exchange.since.length ? ` Depuis, ont écrit : ${exchange.since.join(", ")}.` : "";
+      return `ARCHIVE-9 a parlé il y a ${String(seconds)} s, en répondant à ${exchange.withName}.${since}`;
+    }
+    const last = await lastMessageAt(this.deps.db, channelId, this.deps.selfId);
+    if (!last) return "ARCHIVE-9 n'a encore jamais parlé dans ce salon.";
+    return `ARCHIVE-9 a parlé ici pour la dernière fois il y a ${String(Math.round((Date.now() - last.getTime()) / 60_000))} min.`;
   }
 
   private async respond(
@@ -245,7 +269,13 @@ export class Pipeline {
       });
 
       if (send.sentMessageIds.length > 0 || send.reacted) {
-        this.lastExchange.set(target.channelId, { at: Date.now(), withAuthorId: target.author.id, interrupted: false });
+        this.lastExchange.set(target.channelId, {
+          at: Date.now(),
+          withAuthorId: target.author.id,
+          withName: target.member?.displayName ?? target.author.username,
+          interrupted: false,
+          since: [],
+        });
         await recordInteraction(db, target.author.id);
         if (target.author.bot) this.loopGuard.recordReplyToBot(target.channelId);
       }
