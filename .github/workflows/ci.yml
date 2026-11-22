@@ -52,9 +52,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  image:
+  images:
+    name: image (${{ matrix.app }})
     needs: [check, secrets]
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [bot, web]
     permissions:
       contents: read
       packages: write
@@ -70,35 +74,43 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/archive-9-bot
+          images: ghcr.io/${{ github.repository_owner }}/archive-9-${{ matrix.app }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: docker/bot.Dockerfile
+          file: docker/${{ matrix.app }}.Dockerfile
           platforms: linux/amd64
           build-args: GIT_SHA=${{ github.sha }}
           load: true
-          tags: archive-9-bot:ci
-          cache-from: type=gha,scope=bot
-          cache-to: type=gha,mode=max,scope=bot
+          tags: archive-9-${{ matrix.app }}:ci
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
       # Starting without any variable must fail on env validation, which only runs once
       # every import has resolved: a missing package fails here instead of in production.
       - name: Smoke test the image
         run: |
-          out=$(docker run --rm archive-9-bot:ci 2>&1 || true)
+          out=$(docker run --rm archive-9-${{ matrix.app }}:ci 2>&1 || true)
           echo "$out" | tail -5
           echo "$out" | grep -q "Invalid environment"
       - uses: docker/build-push-action@v7
         if: github.event_name == 'push'
         with:
           context: .
-          file: docker/bot.Dockerfile
+          file: docker/${{ matrix.app }}.Dockerfile
           platforms: linux/amd64
           build-args: GIT_SHA=${{ github.sha }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=bot
+          cache-from: type=gha,scope=${{ matrix.app }}
+
+  # The check that protects main: green only when every image built and passed its smoke test.
+  image:
+    needs: [images]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.images.result }}" = "success"

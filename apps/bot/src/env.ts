@@ -60,6 +60,8 @@ const schema = z.object({
   ANALYSIS_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
   /** Past this over 24 h, only humans who mention or reply get an answer, from free models. */
   REPLY_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(1),
+  /** Password of the site's read-mostly Postgres user, created by the bot. Unset: no site. */
+  WEB_DB_PASSWORD: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
   REFLECTION_HOUR: z.coerce.number().int().min(0).max(23).default(23),
   MESSAGE_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 });

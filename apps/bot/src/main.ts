@@ -1,7 +1,7 @@
 import { AiRuntime, buildBio, createModelResolver } from "@archive-9/ai";
 import { versionLabel } from "@archive-9/core";
-import { createDb, ensureServerProfile, ping, runMigrations } from "@archive-9/db";
-import { Client, Events, GatewayIntentBits, Partials, type Guild } from "discord.js";
+import { createDb, ensureServerProfile, ensureWebRole, ping, runMigrations, setInGuild, syncGuildMembers, type MemberInput } from "@archive-9/db";
+import { Client, Events, GatewayIntentBits, Partials, type Guild, type GuildMember, type PartialGuildMember } from "discord.js";
 import { COMMANDS, handleInteraction } from "./commands.ts";
 import { parseEnv } from "./env.ts";
 import { startHealthServer } from "./health.ts";
@@ -22,7 +22,12 @@ await runMigrations(env.DATABASE_URL);
 log.info("migrations applied");
 
 const { db, client: sqlClient, close: closeDb } = createDb(env.DATABASE_URL);
+if (env.WEB_DB_PASSWORD) {
+  await ensureWebRole(sqlClient, env.WEB_DB_PASSWORD);
+  log.info("site database user ready");
+}
 const settings = await SettingsStore.load(db, { listenedChannelIds: env.LISTENED_CHANNEL_IDS });
+await settings.set("botVersion", { label: version, startedAt: startedAt.toISOString() }, null);
 const knownAiBotIds = new Set(env.KNOWN_AI_BOT_IDS);
 
 const ai = new AiRuntime(
@@ -120,7 +125,22 @@ async function registerCommands(guild: Guild) {
   await ensureServerProfile(db, guild.id, guild.name);
   await guild.commands.set(COMMANDS);
   log.info({ count: COMMANDS.length }, "commands registered");
+  const all = await guild.members.fetch();
+  await syncGuildMembers(db, [...all.values()].map((m) => memberInput(m)));
+  log.info({ count: all.size }, "guild members synced");
 }
+
+function memberInput(m: GuildMember | PartialGuildMember): MemberInput {
+  return { id: m.id, username: m.user.username, displayName: m.displayName, isBot: m.user.bot, isKnownAiBot: knownAiBotIds.has(m.id) };
+}
+
+// Who is on the server decides who may open the site.
+discord.on(Events.GuildMemberAdd, (m) => {
+  if (m.guild.id === env.DISCORD_GUILD_ID) safely("member add", () => setInGuild(db, memberInput(m), true));
+});
+discord.on(Events.GuildMemberRemove, (m) => {
+  if (m.guild.id === env.DISCORD_GUILD_ID) safely("member remove", () => setInGuild(db, memberInput(m), false));
+});
 
 discord.on(Events.GuildCreate, (guild) => {
   if (guild.id === env.DISCORD_GUILD_ID) safely("command registration", () => registerCommands(guild));

@@ -57,11 +57,43 @@ services:
       ANALYSIS_DAILY_BUDGET_USD:
       REPLY_DAILY_BUDGET_USD:
       AGENTS_CATEGORY_ID:
+      WEB_DB_PASSWORD: ${WEB_DB_PASSWORD:-}
       REFLECTION_HOUR:
       MESSAGE_RETENTION_DAYS:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     mem_limit: 384m
     networks: [db, egress]
+
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/leobdt/archive-9-web:latest}
+    restart: unless-stopped
+    depends_on:
+      # The bot creates the site's database user at start-up.
+      bot:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://archive9_web:${WEB_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SITE_URL: ${SITE_URL}
+      SITE_OWNER_ID: ${SITE_OWNER_ID}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BOT_TIMEZONE: ${BOT_TIMEZONE:-Europe/Paris}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # No published port: only the tunnel reaches it.
+    mem_limit: 256m
+    networks: [db, egress]
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.11.1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    depends_on: [web]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    mem_limit: 128m
+    networks: [egress]
 
   backup:
     image: postgres:18-alpine

@@ -11,6 +11,8 @@ export interface BotSettings {
   debounceMs: number;
   /** Profile status lines, newest first: the current one, then a few to avoid repeats. */
   statusLines: string[];
+  /** Written by the bot at start-up, read by the site. */
+  botVersion: { label: string; startedAt: string } | null;
 }
 
 const KEYS = {
@@ -20,6 +22,7 @@ const KEYS = {
   listenedChannelIds: "listened_channel_ids",
   debounceMs: "debounce_ms",
   statusLines: "status_lines",
+  botVersion: "bot_version",
 } as const satisfies Record<keyof BotSettings, string>;
 
 export const DEFAULT_SETTINGS: BotSettings = {
@@ -29,6 +32,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   listenedChannelIds: [],
   debounceMs: 8_000,
   statusLines: [],
+  botVersion: null,
 };
 
 /** Reads all settings, writing `seed` values for any key that was never set. */
@@ -36,7 +40,12 @@ export async function loadSettings(db: Database, seed: Partial<BotSettings> = {}
   const initial = { ...DEFAULT_SETTINGS, ...seed };
   await db
     .insert(settings)
-    .values(Object.entries(KEYS).map(([field, key]) => ({ key, value: initial[field as keyof BotSettings] })))
+    .values(
+      Object.entries(KEYS)
+        // A null default (bot_version) means "not known yet": nothing to store.
+        .filter(([field]) => initial[field as keyof BotSettings] !== null)
+        .map(([field, key]) => ({ key, value: initial[field as keyof BotSettings] })),
+    )
     .onConflictDoNothing();
 
   const rows = await db.select().from(settings);
@@ -58,4 +67,15 @@ export async function saveSetting<K extends keyof BotSettings>(
     .insert(settings)
     .values({ key: KEYS[field], value, updatedBy })
     .onConflictDoUpdate({ target: settings.key, set: { value, updatedBy, updatedAt: sql`now()` } });
+}
+
+/** Settings without writing anything: for the site, whose database user can't. */
+export async function readSettings(db: Database): Promise<BotSettings> {
+  const rows = await db.select().from(settings);
+  const byKey = new Map(rows.map((row) => [row.key, row.value]));
+  const result = { ...DEFAULT_SETTINGS };
+  for (const [field, key] of Object.entries(KEYS) as [keyof BotSettings, string][]) {
+    if (byKey.has(key)) Object.assign(result, { [field]: byKey.get(key) });
+  }
+  return result;
 }
