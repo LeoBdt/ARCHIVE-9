@@ -31,6 +31,9 @@ export type ActionStatus = (typeof ACTION_STATUSES)[number];
 export const SELF_STATE_SOURCES = ["initial", "reflection", "rollback"] as const;
 export type SelfStateSource = (typeof SELF_STATE_SOURCES)[number];
 
+export const SKILL_KINDS = ["triggered", "permanent"] as const;
+export type SkillKind = (typeof SKILL_KINDS)[number];
+
 export const AFFINITY_RANGE = { min: -100, max: 100 } as const;
 export const TRUST_RANGE = { min: 0, max: 100 } as const;
 

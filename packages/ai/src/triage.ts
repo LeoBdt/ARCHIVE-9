@@ -5,14 +5,10 @@ import type { AiRuntime } from "./runtime.ts";
 import { readStructured } from "./structured.ts";
 import type { UsageRecord } from "./usage.ts";
 
-export const TOOL_PACKS = ["discord-messages"] as const;
-export type ToolPack = (typeof TOOL_PACKS)[number];
-
 export const triageSchema = z.object({
   addressed: z.boolean().describe("true si le dernier message s'adresse à ARCHIVE-9 ou attend sa réaction"),
   interest: z.number().int().min(0).max(10).describe("valeur d'une intervention spontanée d'ARCHIVE-9, de 0 à 10"),
   reason: z.string().describe("une phrase courte, 20 mots maximum, en français"),
-  toolPacks: z.array(z.enum(TOOL_PACKS)).max(3).describe("packs d'outils utiles pour la réponse"),
 });
 
 export type TriageDecision = z.infer<typeof triageSchema>;

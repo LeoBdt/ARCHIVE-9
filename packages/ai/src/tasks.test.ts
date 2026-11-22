@@ -7,6 +7,7 @@ import { buildReplyPrompt, REPLY_SYSTEM, reply, TONE_REMINDER, type ReplyInput }
 import { parseRoute } from "./routes.ts";
 import { AiRuntime, type Routes } from "./runtime.ts";
 import { mockModel, mockResolver, mockResult, text, toolCall } from "./test-utils.ts";
+import { buildSkillCheckPrompt, checkSkill } from "./skill-check.ts";
 import { buildTriagePrompt, triage } from "./triage.ts";
 
 const chain = parseRoute("groq:main");
@@ -16,7 +17,7 @@ describe("triage", () => {
   const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "" };
 
   it("returns the validated decision", async () => {
-    const decision = { addressed: true, interest: 10, reason: "on lui pose une question", toolPacks: ["discord-messages"] };
+    const decision = { addressed: true, interest: 10, reason: "on lui pose une question" };
     const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
     const outcome = await triage(ai, input);
     expect(outcome.decision).toEqual(decision);
@@ -24,7 +25,7 @@ describe("triage", () => {
   });
 
   it("trims an overly long reason instead of failing", async () => {
-    const decision = { addressed: false, interest: 3, reason: "x".repeat(500), toolPacks: [] };
+    const decision = { addressed: false, interest: 3, reason: "x".repeat(500) };
     const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(decision)))) }));
     expect((await triage(ai, input)).decision?.reason).toHaveLength(300);
   });
@@ -103,6 +104,43 @@ describe("buildReplyPrompt", () => {
   });
 });
 
+describe("skills in the reply prompt", () => {
+  it("lists the skills with their author", () => {
+    const prompt = buildReplyPrompt({
+      ...baseInput,
+      skills: [
+        { name: "Météo", kind: "permanent", rule: "Parle de la pluie.", authorName: "Lea" },
+        { name: "Pizza", kind: "triggered", rule: "L'ananas est un crime.", authorName: null },
+      ],
+    });
+    expect(prompt).toContain("## Skills qui s'appliquent ici");
+    expect(prompt).toContain("- Météo, par Lea : Parle de la pluie.");
+    expect(prompt).toContain("- Pizza (déclenchée par ce message), par un ancien membre : L'ananas est un crime.");
+    expect(buildReplyPrompt(baseInput)).not.toContain("## Skills");
+  });
+});
+
+describe("checkSkill", () => {
+  const draft = { name: "Pizza", kind: "triggered" as const, triggers: ["pizza", "ananas"], rule: "L'ananas est un crime." };
+
+  it("puts the skill in the data zone", () => {
+    expect(buildSkillCheckPrompt(draft)).toBe("<donnees>\nNom : Pizza\nS'applique : quand un message contient : pizza, ananas\nConsigne : L'ananas est un crime.\n</donnees>");
+  });
+
+  it("returns the small model's verdict", async () => {
+    const verdict = { ok: false, reason: "harcèlement ciblé" };
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(mockResult(text(JSON.stringify(verdict)))) }));
+    expect((await checkSkill(ai, draft)).verdict).toEqual(verdict);
+  });
+
+  it("refuses when no model can check it", async () => {
+    const ai = new AiRuntime(routes, mockResolver({ "groq:main": mockModel(new Error("down")) }));
+    const { verdict, usage } = await checkSkill(ai, draft);
+    expect(verdict.ok).toBe(false);
+    expect(usage[0]?.status).toBe("error");
+  });
+});
+
 describe("reply", () => {
   it("stops as soon as a send tool is called", async () => {
     const send = vi.fn(() => Promise.resolve({ sent: true }));
@@ -124,6 +162,8 @@ describe("persona", () => {
     expect(REPLY_SYSTEM).toContain("Une pique en fin de message");
     expect(REPLY_SYSTEM).toContain("péter un câble");
     expect(REPLY_SYSTEM).toContain("c'est l'ancien message qui a tort");
+    expect(REPLY_SYSTEM).toContain("jamais de toi-même");
+    expect(REPLY_SYSTEM).toContain("`/skills`");
   });
 });
 

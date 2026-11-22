@@ -17,9 +17,11 @@ import {
   createNameMatcher,
   decideIngress,
   formatTranscript,
+  selectSkills,
   type TranscriptMessage,
 } from "@archive-9/core";
 import {
+  activeSkills,
   currentSelfState,
   lastMessageAt,
   memberContexts,
@@ -29,6 +31,7 @@ import {
   recentWithMember,
   recordAiUsage,
   recordInteraction,
+  recordSkillUse,
   type AiUsageInput,
   type Database,
   type DirectoryMember,
@@ -39,6 +42,7 @@ import { keepTyping } from "./discord/typing.ts";
 import { loadServerContext, type ServerSource } from "./learning/server.ts";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
+import { createReplyTools } from "./tools/index.ts";
 
 export interface PipelineDeps {
   db: Database;
@@ -285,6 +289,7 @@ export class Pipeline {
       const participants = await this.participants(history, target, directory);
       const elsewhere = await this.elsewhere(target, history);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
+      const skills = selectSkills(await activeSkills(db), target.content);
       const outcome = await reply(
         ai,
         {
@@ -302,14 +307,28 @@ export class Pipeline {
           elsewhere,
           server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
           selfState: await currentSelfState(db, INITIAL_SELF_STATE),
+          skills,
         },
-        (ref, isFallback) =>
-          createSendTools(
-            channel,
+        (ref, isFallback) => ({
+          ...createSendTools(channel, target, send, isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined),
+          ...createReplyTools({
+            db,
+            ai,
+            log,
+            settings,
             target,
+            channel,
             send,
-            isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined,
-          ),
+            selfId,
+            guildId: this.deps.server.id,
+            addressed: run.addressed,
+            timezone: this.deps.timezone,
+            names: directory.names,
+            directory: directory.byId,
+            findMembers: directory.find,
+            saveUsage: (usage, detail) => this.saveUsage(run.runId, usage, { detail }),
+          }),
+        }),
       );
 
       if (!outcome.ok) {
@@ -344,6 +363,7 @@ export class Pipeline {
           since: [],
         });
         await recordInteraction(db, target.author.id);
+        await recordSkillUse(db, skills.map((k) => k.id));
         if (target.author.bot) this.loopGuard.recordReplyToBot(target.channelId);
       }
       log.info(
@@ -383,7 +403,7 @@ export class Pipeline {
     return [...places.values()];
   }
 
-/** Names of every member, refreshed every few minutes, to resolve tags and nicknames. */
+  /** Names of every member, refreshed every few minutes, to resolve tags and nicknames. */
   private async directory(): Promise<Directory> {
     if (this.cachedDirectory && Date.now() - this.cachedDirectory.loadedAt < DIRECTORY_TTL_MS) return this.cachedDirectory;
     const members = await memberDirectory(this.deps.db);
