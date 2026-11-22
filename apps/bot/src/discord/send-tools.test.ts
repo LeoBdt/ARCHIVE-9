@@ -17,7 +17,7 @@ const opts = { toolCallId: "t", messages: [], context: {} };
 describe("send tools", () => {
   it("replies to the target and records the message", async () => {
     const f = fakes();
-    const state: SendState = { sentMessageIds: [], reacted: false };
+    const state: SendState = { sentMessageIds: [], reacted: false, silenced: false };
     const tools = createSendTools(f.channel, f.target, state);
     await tools.sendReply.execute({ content: "  salut  " }, opts);
     expect(f.reply).toHaveBeenCalledWith({ content: "salut" });
@@ -26,7 +26,7 @@ describe("send tools", () => {
 
   it("adds the fallback tag to the first message only", async () => {
     const f = fakes();
-    const state: SendState = { sentMessageIds: [], reacted: false };
+    const state: SendState = { sentMessageIds: [], reacted: false, silenced: false };
     const tools = createSendTools(f.channel, f.target, state, "-# noyau-gpt-oss-120b");
     await tools.sendReply.execute({ content: "un" }, opts);
     await tools.sendMessage.execute({ content: "deux" }, opts);
@@ -37,7 +37,7 @@ describe("send tools", () => {
 
   it("keeps messages within Discord's limit, tag included", async () => {
     const f = fakes();
-    const tools = createSendTools(f.channel, f.target, { sentMessageIds: [], reacted: false }, "-# tag");
+    const tools = createSendTools(f.channel, f.target, { sentMessageIds: [], reacted: false, silenced: false }, "-# tag");
     await tools.sendMessage.execute({ content: "x".repeat(3000) }, opts);
     const sent = f.send.mock.calls[0]?.[0].content ?? "";
     expect(sent.length).toBe(2000);
@@ -46,9 +46,19 @@ describe("send tools", () => {
 
   it("reacts without counting as a message", async () => {
     const f = fakes();
-    const state: SendState = { sentMessageIds: [], reacted: false };
+    const state: SendState = { sentMessageIds: [], reacted: false, silenced: false };
     await createSendTools(f.channel, f.target, state).addReaction.execute({ emoji: "😂" }, opts);
     expect(f.react).toHaveBeenCalledWith("😂");
-    expect(state).toEqual({ sentMessageIds: [], reacted: true });
+    expect(state).toEqual({ sentMessageIds: [], reacted: true, silenced: false });
+  });
+});
+
+describe("staySilent", () => {
+  it("marks the run as a deliberate silence", async () => {
+    const f = fakes();
+    const state: SendState = { sentMessageIds: [], reacted: false, silenced: false };
+    await createSendTools(f.channel, f.target, state).staySilent.execute({ reason: "rien à dire" }, opts);
+    expect(state.silenced).toBe(true);
+    expect(f.reply).not.toHaveBeenCalled();
   });
 });

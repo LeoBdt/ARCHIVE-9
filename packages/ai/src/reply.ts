@@ -5,6 +5,7 @@ import type { ModelRef } from "./routes.ts";
 import type { AiRuntime } from "./runtime.ts";
 
 export const SEND_TOOLS = ["sendReply", "sendMessage"] as const;
+export const SILENCE_TOOL = "staySilent";
 export const MAX_REPLY_STEPS = 4;
 
 export interface Participant {
@@ -90,7 +91,9 @@ export async function reply(ai: AiRuntime, input: ReplyInput, tools: (ref: Model
         prompt,
         tools: tools(ref, ref.id !== primary?.id),
         providerOptions,
-        stopWhen: [stepCountIs(MAX_REPLY_STEPS), hasToolCall(...SEND_TOOLS)],
+        stopWhen: [stepCountIs(MAX_REPLY_STEPS), hasToolCall(...SEND_TOOLS, SILENCE_TOOL)],
+        // Some models answer in plain text when tools are optional; the first step must pick one.
+        prepareStep: ({ stepNumber }) => (stepNumber === 0 ? { toolChoice: "required" } : {}),
         maxRetries: 0,
         maxOutputTokens: 800,
       }),

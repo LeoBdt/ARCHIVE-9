@@ -178,7 +178,7 @@ export class Pipeline {
       if (!history.some((m) => m.id === target.id)) history.push(toTranscript(target, selfId));
 
       const participants = await this.participants(history, target);
-      const send: SendState = { sentMessageIds: [], reacted: false };
+      const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
       const outcome = await reply(
         ai,
         {
@@ -210,6 +210,14 @@ export class Pipeline {
         }
         await this.saveUsage(run.runId, outcome.usage, { replyMessageIds: send.sentMessageIds, detail: "offline" });
         return;
+      }
+
+      // Safety net: when addressed, text written outside the tools is still what it meant to say.
+      const strayText = outcome.result.text.trim();
+      if (run.addressed && strayText && send.sentMessageIds.length === 0 && !send.silenced) {
+        const tag = outcome.isFallback && settings.value.showFallbackTag ? `\n-# noyau-${shortModelName(outcome.ref)}` : "";
+        const sent = await target.reply(`${strayText.slice(0, 2000 - tag.length)}${tag}`);
+        send.sentMessageIds.push(sent.id);
       }
 
       const toolsCalled = outcome.result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolName));

@@ -7,6 +7,7 @@ const MAX_LENGTH = 2000;
 export interface SendState {
   sentMessageIds: string[];
   reacted: boolean;
+  silenced: boolean;
 }
 
 /**
@@ -45,6 +46,14 @@ export function createSendTools(channel: SendableChannels, target: Message, stat
         await target.react(emoji);
         state.reacted = true;
         return { reacted: true };
+      },
+    }),
+    staySilent: tool({
+      description: "Ne rien dire cette fois-ci.",
+      inputSchema: z.object({ reason: z.string().max(200).describe("pourquoi, en quelques mots") }),
+      execute: () => {
+        state.silenced = true;
+        return { silent: true };
       },
     }),
   };
