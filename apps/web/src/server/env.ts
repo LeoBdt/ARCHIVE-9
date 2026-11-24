@@ -17,6 +17,8 @@ const schema = z.object({
   DISCORD_CLIENT_ID: z.string().min(1),
   DISCORD_CLIENT_SECRET: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(32),
+  /** Same as the bot's, shown on the system page. */
+  REPLY_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(1),
 });
 
 export type WebEnv = z.infer<typeof schema>;

@@ -14,12 +14,12 @@ import { startLive } from "./live.ts";
 import { Header } from "./components/Header.tsx";
 import { Access } from "./pages/Access.tsx";
 import { Archives } from "./pages/Archives.tsx";
-import { Coulisses } from "./pages/Coulisses.tsx";
+import { System } from "./pages/System.tsx";
 import { Settings } from "./pages/Settings.tsx";
 import { Dossier } from "./pages/Dossier.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Journal } from "./pages/Journal.tsx";
-import { Memory } from "./pages/Memory.tsx";
+import { Mind } from "./pages/Mind.tsx";
 import { Relations } from "./pages/Relations.tsx";
 import { Skills } from "./pages/Skills.tsx";
 import { Soon } from "./pages/Soon.tsx";
@@ -46,10 +46,12 @@ function SignedIn({ viewer }: { viewer: Viewer }) {
         <Route path="/archives" element={<Archives />} />
         <Route path="/archives/:id" element={<Dossier />} />
         <Route path="/relations" element={<Relations />} />
-        <Route path="/memoire" element={<Memory viewer={viewer} />} />
-        <Route path="/skills" element={<Skills />} />
+        <Route path="/esprit" element={<Mind viewer={viewer} />} />
+        <Route path="/memoire" element={<Navigate to="/esprit" replace />} />
+        <Route path="/skills" element={<Skills viewer={viewer} />} />
         <Route path="/journal" element={<Journal />} />
-        <Route path="/coulisses" element={<Coulisses />} />
+        <Route path="/systeme" element={<System />} />
+        <Route path="/coulisses" element={<Navigate to="/systeme" replace />} />
         <Route path="/reglages" element={<Settings viewer={viewer} />} />
         <Route path="*" element={<Soon />} />
       </Routes>

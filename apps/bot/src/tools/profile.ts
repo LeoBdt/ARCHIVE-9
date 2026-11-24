@@ -14,7 +14,7 @@ export function createProfileTools(ctx: ToolContext) {
 
   return {
     myFacts: tool({
-      description: "Liste les infos de la fiche de la personne qui te parle (la sienne seulement), avec une référence F1, F2… pour chacune.",
+      description: "Liste les fragments du dossier de la personne qui te parle (la sienne seulement), avec une référence F1, F2… pour chacune.",
       inputSchema: z.object({}),
       execute: async () => {
         if (!allowed()) return refused("seulement quand la personne te le demande");
@@ -25,7 +25,7 @@ export function createProfileTools(ctx: ToolContext) {
 
     forgetMyFacts: tool({
       description:
-        "Retire des infos de la fiche de la personne qui te parle, quand elle te le demande. Appelle myFacts d'abord pour avoir les références. Il faut sa raison : demande-la si elle ne l'a pas donnée. Jamais la fiche de quelqu'un d'autre.",
+        "Retire des fragments du dossier de la personne qui te parle, quand elle te le demande. Appelle myFacts d'abord pour avoir les références. Il faut sa raison : demande-la si elle ne l'a pas donnée. Jamais le dossier de quelqu'un d'autre.",
       inputSchema: z.object({
         refs: z.array(z.string()).min(1).max(10).describe("références données par myFacts (F1, F2…)"),
         reason: z.string().min(3).max(300).describe("pourquoi la personne veut la retirer, avec ses mots"),
@@ -40,13 +40,13 @@ export function createProfileTools(ctx: ToolContext) {
         if (ids.length === 0) return refused("aucune de ces références n'existe : appelle myFacts");
         const removed = await forgetOwnFacts(ctx.db, owner, ids, reason.trim(), "discord");
         ctx.log.info({ memberId: owner, count: removed.length }, "facts removed by their owner");
-        return { ok: true, removed, note: "Retiré de la fiche. Le résumé sera réécrit dans les minutes qui viennent." };
+        return { ok: true, removed, note: "Retiré du dossier. Le résumé sera réécrit dans les minutes qui viennent." };
       },
     }),
 
     correctMyFact: tool({
       description:
-        "Remplace une info de la fiche de la personne qui te parle par sa version à elle (« je suis en master, pas en licence »). Appelle myFacts d'abord. L'ancienne version reste dans l'historique et ne sera pas réapprise.",
+        "Remplace un fragment du dossier de la personne qui te parle par sa version à elle (« je suis en master, pas en licence »). Appelle myFacts d'abord. L'ancienne version reste dans l'historique et ne sera pas réapprise.",
       inputSchema: z.object({
         ref: z.string().describe("référence donnée par myFacts (F1, F2…)"),
         content: z.string().describe("la bonne version, une phrase courte à la 3e personne, sans le nom"),

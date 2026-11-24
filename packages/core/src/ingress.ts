@@ -25,8 +25,8 @@ export interface IngressContext {
   /** ARCHIVE-9 spoke in this channel moments ago, so a follow-up may be meant for it. */
   inActiveConversation: boolean;
   /**
-   * The AGENTS category, where bots may do anything. Elsewhere on the server, the rule is
-   * an explicit @mention or a reply to one of its messages, and nothing else.
+   * The AGENTS category, where bots may do anything. Elsewhere on the server, only an
+   * explicit @mention counts (a reply that pings it is one; a reply without the ping is not).
    */
   inAgents: boolean;
 }
@@ -56,7 +56,7 @@ export function decideIngress(msg: IncomingMessage, ctx: IngressContext): Ingres
 
   const fromBot = msg.authorIsBot;
   if (!msg.isDm && !ctx.inAgents) {
-    return !fromBot && (msg.mentionsSelf || msg.repliesToSelf) ? { action: "reply", fromBot } : { action: "ignore", reason: "outside_agents" };
+    return !fromBot && msg.mentionsSelf ? { action: "reply", fromBot } : { action: "ignore", reason: "outside_agents" };
   }
   const addressed = msg.isDm || msg.mentionsSelf || msg.namesSelf || msg.repliesToSelf || msg.continuesExchange;
   if (addressed) return { action: "reply", fromBot };

@@ -9,9 +9,9 @@ export interface DrawerSpec {
   content: ReactNode;
 }
 
-/** A filing cabinet: drawers that slide open one at a time. */
-export function Cabinet({ drawers, initial }: { drawers: DrawerSpec[]; initial?: string | null }) {
-  const [open, setOpen] = useState<string | null>(initial === undefined ? (drawers[0]?.key ?? null) : initial);
+/** A filing cabinet: drawers that slide open one at a time, all shut at first. */
+export function Cabinet({ drawers, unit = ["fragment", "fragments"] }: { drawers: DrawerSpec[]; unit?: [string, string] }) {
+  const [open, setOpen] = useState<string | null>(null);
   return (
     <div className="cabinet">
       {drawers.map((d) => {
@@ -33,7 +33,7 @@ export function Cabinet({ drawers, initial }: { drawers: DrawerSpec[]; initial?:
                 {d.sublabel && <small>{d.sublabel}</small>}
               </span>
               <span className="drawer-count">
-                {d.count} {d.count === 1 ? "fiche" : "fiches"}
+                {d.count} {d.count === 1 ? unit[0] : unit[1]}
               </span>
               <span className="drawer-handle" aria-hidden="true" />
               <span className="drawer-arrow" aria-hidden="true">

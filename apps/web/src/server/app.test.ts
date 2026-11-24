@@ -1,4 +1,4 @@
-import { applyAnalysis, createDb, currentFacts, ensureWebRole, grantSiteAdmin, readSettings, recordDecision, saveMessage, syncGuildMembers, WEB_DB_ROLE } from "@archive-9/db";
+import { applyAnalysis, createDb, currentFacts, ensureWebRole, grantSiteAdmin, readSettings, recordDecision, saveMessage, saveSetting, syncGuildMembers, WEB_DB_ROLE } from "@archive-9/db";
 import { createTestDatabase } from "@archive-9/db/test-utils";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -125,7 +125,12 @@ describe.skipIf(!url)("site server", () => {
     const [fact] = await currentFacts(conn.db, MEMBER, 5);
     expect((await post(`/api/facts/${fact?.id ?? ""}`, "100000000000000004", { action: "correct", content: "Volé." })).status).toBe(404);
     expect((await post(`/api/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "06 12 34 56 78 99" })).status).toBe(400);
-    expect((await post(`/api/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "En master." })).status).toBe(200);
+    const edit = await post(`/api/facts/${fact?.id ?? ""}`, MEMBER, { action: "correct", content: "En master." });
+    expect(edit.status).toBe(200);
+    // ARCHIVE-9 follows up on its own; the member can watch the steps.
+    const { requestId } = (await edit.json()) as { requestId: string };
+    expect(await (await get(`/api/requests/${requestId}`, MEMBER)).json()).toMatchObject({ kind: "fact_edit", status: "pending", steps: [{ text: "Correction enregistrée." }] });
+    expect((await get(`/api/requests/${requestId}`, "100000000000000004")).status).toBe(404);
     const [corrected] = await currentFacts(conn.db, MEMBER, 5);
     expect(corrected?.content).toBe("En master.");
     // The owner is an admin: they may fix anyone's profile.
@@ -138,12 +143,12 @@ describe.skipIf(!url)("site server", () => {
     await recordDecision(conn.db, { ...reply, messageId: "d1", guildId: "g", channelName: "général" });
     await recordDecision(conn.db, { ...reply, messageId: "d2", guildId: null });
     await recordDecision(conn.db, { channelId: "c", authorId: OWNER, outcome: "ignored", reason: "outside_agents", messageId: "d3", guildId: "g" });
-    const forMember = (await (await get("/api/journal", "100000000000000004")).json()) as { replies: { isDm: boolean }[] };
-    expect(forMember.replies.map((r) => r.isDm)).toEqual([false]);
-    const forOwner = (await (await get("/api/journal", OWNER)).json()) as { replies: unknown[] };
-    expect(forOwner.replies).toHaveLength(2);
-    const backstage = (await (await get("/api/coulisses", "100000000000000004")).json()) as { ignored: { reason: string; n: number }[] };
-    expect(backstage.ignored).toEqual([{ reason: "outside_agents", n: 1 }]);
+    const forMember = (await (await get("/api/journal/replies", "100000000000000004")).json()) as { isDm: boolean }[];
+    expect(forMember.map((r) => r.isDm)).toEqual([false]);
+    const forOwner = (await (await get("/api/journal/replies", OWNER)).json()) as unknown[];
+    expect(forOwner).toHaveLength(2);
+    const triage = (await (await get("/api/journal/triage", "100000000000000004")).json()) as { ignored: { reason: string; n: number }[] };
+    expect(triage.ignored).toEqual([{ reason: "outside_agents", n: 1 }]);
   });
 
   it("tells open pages when something changes, only to members", async () => {
@@ -162,6 +167,21 @@ describe.skipIf(!url)("site server", () => {
     await reader.cancel();
   });
 
+  it("shows the source of a fragment only from a public channel", async () => {
+    const id = "200000000000000001";
+    await saveMessage(conn.db, { id, guildId: "g", channelId: "c2", authorId: MEMBER, content: "je joue à CS2", replyToId: null, mentionedIds: [], createdAt: new Date() });
+    expect(await (await get(`/api/messages/${id}`, MEMBER)).json()).toMatchObject({ found: true, hidden: true, messages: [] });
+    await saveSetting(conn.db, "channelDirectory", [{ id: "c2", name: "général", category: null, isPublic: true }], null);
+    expect(await (await get(`/api/messages/${id}`, MEMBER)).json()).toMatchObject({ found: true, channelName: "général", messages: [{ content: "je joue à CS2", isTarget: true }] });
+  });
+
+  it("queues a skill taught from the site, and an admin's comment on its mind", async () => {
+    const taught = await post("/api/skills", MEMBER, { text: "Réagis avec 🌧️ quand on parle de pluie." });
+    expect(taught.status).toBe(200);
+    expect((await post("/api/esprit/comment", "100000000000000004", { about: "journal", comment: "trop long" })).status).toBe(403);
+    expect((await post("/api/esprit/comment", OWNER, { about: "journal", comment: "trop long" })).status).toBe(200);
+  });
+
   it("gives the site a database user that reads but can't rewrite the archives", async () => {
     await ensureWebRole(conn.client, "testpassword123456");
     const web = new URL(testUrl);
@@ -170,7 +190,7 @@ describe.skipIf(!url)("site server", () => {
     const site = createDb(web.toString(), { max: 1 });
     try {
       const rows = await site.client`select count(*)::int as n from messages`;
-      expect(rows[0]?.n).toBe(1);
+      expect(rows[0]?.n).toBeGreaterThan(0);
       await expect(site.client`delete from messages`).rejects.toThrow(/permission denied/);
       await site.client`insert into web_verification (id, identifier, value, expires_at) values ('v', 'i', 'x', now())`;
     } finally {

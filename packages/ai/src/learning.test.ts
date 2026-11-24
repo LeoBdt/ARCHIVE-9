@@ -299,8 +299,8 @@ describe("reflect", () => {
       feedback: [{ name: "Léa", trust: 70, content: "Trop agressif." }, { name: "Max", trust: null, content: "Tais-toi." }],
     });
     expect(prompt).toContain("Résolutions :\n1. je pique moins");
-    expect(prompt).toContain("- Léa (ta confiance : 70/100) : Trop agressif.");
-    expect(prompt).toContain("- Max (ta confiance : inconnue) : Tais-toi.");
+    expect(prompt).toContain("1. Léa (ta confiance : 70/100) : Trop agressif.");
+    expect(prompt).toContain("2. Max (ta confiance : inconnue) : Tais-toi.");
     expect(buildReflectionPrompt(reflection)).toContain("## Les retours qu'on t'a faits sur ta façon d'être\n(aucun)");
   });
 

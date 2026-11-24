@@ -50,6 +50,8 @@ export interface ReplyInput {
   feedback?: { authorName: string; content: string }[];
   /** The deployment currently running, and since when. */
   version?: { label: string; since: Date };
+  /** The site's public address, to give it as a full link. */
+  siteUrl?: string | null;
 }
 
 export const REPLY_SYSTEM = `${PERSONA}\n\n${RULES}`;
@@ -91,7 +93,7 @@ export function buildReplyPrompt(input: ReplyInput): string {
   const elsewhere = (input.elsewhere ?? []).filter((e) => e.messages.length > 0);
   const shortMemory = elsewhere.length
     ? `\n## Ce que ${author} t'a dit récemment ailleurs
-Ta mémoire courte : ce n'est peut-être pas encore dans sa fiche. Sers-t'en si c'est utile, comme un souvenir.
+Ta mémoire courte : ce n'est peut-être pas encore dans son dossier. Sers-t'en si c'est utile, comme un souvenir.
 ${elsewhere
   .map((e) => `### ${e.where}\n<donnees>\n${formatTranscript(e.messages, { timeZone: input.timezone, maxContentLength: 300, names: input.names })}\n</donnees>`)
   .join("\n")}
@@ -119,7 +121,7 @@ ${input.feedback.map((f) => `- ${f.authorName} : ${f.content}`).join("\n")}
     : "";
 
   return `## Contexte
-${when}, ${where}.${version}
+${when}, ${where}.${version}${input.siteUrl ? `\nTon site : ${input.siteUrl.replace(/\/$/, "")}` : ""}
 ${situation}
 ${input.mentionNote ? `${input.mentionNote}\n` : ""}${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Ton état actuel

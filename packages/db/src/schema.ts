@@ -3,7 +3,6 @@ import {
   ACTION_TIERS,
   AI_CALL_STATUSES,
   AI_TASKS,
-  FACT_CATEGORIES,
   FACT_NATURES,
   SELF_STATE_SOURCES,
   SKILL_KINDS,
@@ -33,7 +32,6 @@ import {
 const timestamptz = () => timestamp({ withTimezone: true });
 const createdAt = () => timestamptz().notNull().defaultNow();
 
-export const factCategory = pgEnum("fact_category", FACT_CATEGORIES);
 export const factNature = pgEnum("fact_nature", FACT_NATURES);
 export const aiTask = pgEnum("ai_task", AI_TASKS);
 export const aiCallStatus = pgEnum("ai_call_status", AI_CALL_STATUSES);
@@ -53,6 +51,8 @@ export const members = pgTable("members", {
   isServer: boolean().notNull().default(false),
   /** On the server right now, kept by the bot: the site only lets these people in. */
   inGuild: boolean().notNull().default(false),
+  /** Discord avatar hash, for the site's pictures. */
+  avatar: text(),
   optedOutAt: timestamptz(),
   firstSeenAt: createdAt(),
   lastSeenAt: createdAt(),
@@ -83,6 +83,18 @@ export const messages = pgTable(
   ],
 );
 
+/** The drawers facts are filed in: the starting ones, and those ARCHIVE-9 created. */
+export const factCategories = pgTable("fact_categories", {
+  key: text().primaryKey(),
+  label: text().notNull(),
+  color: text().notNull(),
+  /** "system" for the starting drawers, "archive-9" for its own. */
+  createdBy: text().notNull().default("system"),
+  /** Why ARCHIVE-9 opened it. */
+  reason: text(),
+  createdAt: createdAt(),
+});
+
 export const profileFacts = pgTable(
   "profile_facts",
   {
@@ -90,7 +102,9 @@ export const profileFacts = pgTable(
     memberId: text()
       .notNull()
       .references(() => members.id, { onDelete: "cascade" }),
-    category: factCategory().notNull(),
+    category: text()
+      .notNull()
+      .references(() => factCategories.key, { onUpdate: "cascade" }),
     content: text().notNull(),
     confidence: real().notNull(),
     nature: factNature().notNull(),
@@ -127,9 +141,11 @@ export const factCorrections = pgTable(
     reason: text().notNull(),
     /** Where it was asked: "discord" or "site". */
     source: text().notNull(),
+    /** Who did it, when it isn't the member (an admin on the site). */
+    by: text(),
     createdAt: createdAt(),
   },
-  (t) => [index().on(t.memberId, t.createdAt)],
+  (t) => [index().on(t.memberId, t.createdAt), index().on(t.factId)],
 );
 
 export const profileSummaries = pgTable("profile_summaries", {
@@ -183,6 +199,8 @@ export const relationshipEvents = pgTable(
 
 export const selfStateVersions = pgTable("self_state_versions", {
   version: integer().primaryKey().generatedAlwaysAsIdentity(),
+  /** The number shown to people, in half steps: midday is N, the evening N,5. */
+  label: numeric({ precision: 7, scale: 1, mode: "number" }).notNull(),
   state: jsonb().$type<SelfState>().notNull(),
   source: selfStateSource().notNull(),
   createdBy: text(),
@@ -202,6 +220,15 @@ export const feedback = pgTable(
     createdAt: createdAt(),
     /** Read by a reflection: no longer shown in every reply. */
     reviewedAt: timestamptz(),
+    /** What the reflection decided: adopted, partial or ignored, and why. */
+    verdict: text(),
+    verdictReason: text(),
+    /** The version of itself that weighed it. */
+    reviewedLabel: numeric({ precision: 7, scale: 1, mode: "number" }),
+    /** "discord", or "site" for an admin's comment on its mind. */
+    source: text().notNull().default("discord"),
+    /** What it was about, for a comment from the site (« blague : … »). */
+    about: text(),
   },
   (t) => [index().on(t.createdAt)],
 );
@@ -234,11 +261,36 @@ export const skills = pgTable(
     lastUsedAt: timestamptz(),
     /** A temporary skill stops applying after this. */
     expiresAt: timestamptz(),
+    /** Scope: only in this channel, or only with this member. */
+    channelId: text(),
+    memberId: text(),
     createdAt: createdAt(),
+    updatedAt: createdAt(),
     deletedAt: timestamptz(),
     deletedBy: text(),
   },
   (t) => [uniqueIndex("skills_active_name_idx").on(sql`lower(${t.name})`).where(sql`${t.deletedAt} is null`)],
+);
+
+/** Earlier versions of a skill, kept when it is edited. */
+export const skillRevisions = pgTable(
+  "skill_revisions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    skillId: uuid()
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    kind: skillKind().notNull(),
+    triggers: text().array().notNull().default(sql`'{}'::text[]`),
+    rule: text().notNull(),
+    channelId: text(),
+    memberId: text(),
+    /** Who replaced this version, and when. */
+    editedBy: text(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.skillId, t.createdAt)],
 );
 
 export const actionsLog = pgTable(
@@ -268,6 +320,8 @@ export const aiUsage = pgTable(
     task: aiTask().notNull(),
     provider: text().notNull(),
     model: text().notNull(),
+    /** The model that really answered, when a router picked it (openrouter/free…). */
+    servedModel: text(),
     upstreamProvider: text(),
     fallbackReason: text(),
     inputTokens: integer().notNull().default(0),
@@ -370,6 +424,23 @@ export interface DecisionDetails {
   steps?: { tool: string; summary: string }[];
   /** What it sent, joined. */
   sent?: string | null;
+  /** The triage that led here: what it read and how it reasoned. */
+  triage?: {
+    transcript: string;
+    reasoning: string | null;
+    addressed: boolean;
+    interest: number;
+    reason: string;
+    model: string | null;
+    fallbackReason: string | null;
+    durationMs: number | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+  } | null;
+  /** People it had in mind, to link their dossier and show the numbers. */
+  people?: { id: string; name: string; affinity: number | null; trust: number | null; feeling: string | null }[];
+  /** Skills given to the reply, to link them. */
+  skills?: string[];
 }
 
 /** Every message ARCHIVE-9 looked at, and what it decided. Kept 14 days. Feeds the journal and the backstage page. */
@@ -395,4 +466,56 @@ export const decisions = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index().on(t.createdAt), index().on(t.outcome, t.createdAt)],
+);
+
+export interface RequestStep {
+  at: string;
+  /** step: what it does; say: what it tells you; error: what went wrong. */
+  kind: "step" | "say" | "error";
+  text: string;
+}
+
+/** Something asked from the site that ARCHIVE-9 handles itself, with each step shown live. */
+export const siteRequests = pgTable(
+  "site_requests",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /** fact_edit, fact_remove, mind_comment, skill_create or skill_edit. */
+    kind: text().notNull(),
+    requesterId: text().notNull(),
+    /** The member, fact or skill it is about. */
+    targetId: text(),
+    payload: jsonb().$type<Record<string, unknown>>().notNull(),
+    /** pending, running, done or failed. */
+    status: text().notNull().default("pending"),
+    steps: jsonb().$type<RequestStep[]>().notNull().default([]),
+    result: jsonb().$type<Record<string, unknown>>(),
+    costUsd: numeric({ precision: 12, scale: 8, mode: "number" }),
+    createdAt: createdAt(),
+    finishedAt: timestamptz(),
+  },
+  (t) => [index().on(t.status, t.createdAt), index().on(t.createdAt)],
+);
+
+export interface ReleaseItem {
+  text: string;
+  sha: string;
+}
+
+/** A version of the bot (core) or of the site, with what changed, written for the server. */
+export const releases = pgTable(
+  "releases",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    kind: text().notNull(),
+    /** « Mirys » for the core, « 1.2.0 » for the site. */
+    label: text().notNull(),
+    sha: text().notNull(),
+    previousSha: text(),
+    comment: text(),
+    items: jsonb().$type<ReleaseItem[]>().notNull().default([]),
+    commits: jsonb().$type<{ sha: string; title: string }[]>().notNull().default([]),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("releases_kind_sha_idx").on(t.kind, t.sha), index().on(t.kind, t.createdAt)],
 );

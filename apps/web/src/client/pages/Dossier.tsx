@@ -1,44 +1,40 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { getJson, HttpError, postJson, type Dossier as DossierData } from "../api.ts";
-import { CATEGORIES, CATEGORY_ORDER, reliability, signed, stamp } from "../archive.ts";
+import { getJson, HttpError, postJson, type Category, type Dossier as DossierData, type Fact } from "../api.ts";
+import { categoryOf, reliability, signed, stamp } from "../archive.ts";
+import { Avatar } from "../components/Avatar.tsx";
 import { Cabinet, CardList, Marks } from "../components/Cabinet.tsx";
-import { avatarColor, formatCount, initials } from "../format.ts";
+import { LineChart } from "../components/Charts.tsx";
+import { isWorking, Process, useRequest } from "../components/Process.tsx";
+import { Sheet } from "../components/Sheet.tsx";
+import { SourceSheet } from "../components/Source.tsx";
+import { ago, dayMonth, formatCount, when } from "../format.ts";
 
-type Fact = DossierData["facts"][number];
+const code = (i: number) => `F${String(i + 1).padStart(3, "0")}`;
 
-/** The card pulled out of its drawer, pinned in the middle, to correct or remove it. */
-function EditCard({ fact, code, memberId, onClose }: { fact: Fact; code: string; memberId: string; onClose: () => void }) {
+/** The card pulled out of its drawer: the change is saved, then ARCHIVE-9 follows up, step by step. */
+function EditSheet({ fact, label, memberId, onClose }: { fact: Fact; label: string; memberId: string; onClose: () => void }) {
   const client = useQueryClient();
   const [text, setText] = useState(fact.content);
   const [reason, setReason] = useState("");
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const { data: request } = useRequest(requestId);
+  const working = isWorking(request, requestId);
   const save = useMutation({
-    mutationFn: (action: "correct" | "remove") => postJson(`/api/facts/${fact.id}`, action === "remove" ? { action, reason } : { action, content: text, reason }),
-    onSuccess: async () => {
+    mutationFn: (action: "correct" | "remove") =>
+      postJson<{ requestId: string }>(`/api/facts/${fact.id}`, action === "remove" ? { action, reason } : { action, content: text, reason }),
+    onSuccess: async (result) => {
+      setRequestId(result.requestId);
       await client.invalidateQueries({ queryKey: ["dossier", memberId] });
-      onClose();
     },
   });
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
+  if (request?.status === "done" && !working) void client.invalidateQueries({ queryKey: ["dossier", memberId] });
+
   return (
-    <>
-      <div className="veil" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-labelledby="edit-title" className="edit-card">
-        <span className="tab">
-          {code} · {CATEGORIES[fact.category]?.label ?? fact.category}
-        </span>
-        <h2 id="edit-title" style={{ fontSize: 16 }}>
-          Corriger cette fiche
-        </h2>
+    <Sheet title={`Corriger ${label}`} onClose={onClose} locked={working || save.isPending}>
+      <div className="edit-card-inline">
+        <span className="tab">{label}</span>
         <p className="ink">Ce que j'ai retenu : « {fact.content} »</p>
         <label htmlFor="edit-text" className="ink-label">
           La bonne version
@@ -47,10 +43,10 @@ function EditCard({ fact, code, memberId, onClose }: { fact: Fact; code: string;
           id="edit-text"
           rows={3}
           value={text}
+          disabled={requestId !== null}
           onChange={(e) => {
             setText(e.target.value);
           }}
-          autoFocus
         />
         <label htmlFor="edit-why" className="ink-label">
           Pourquoi (obligatoire pour retirer)
@@ -58,54 +54,63 @@ function EditCard({ fact, code, memberId, onClose }: { fact: Fact; code: string;
         <input
           id="edit-why"
           value={reason}
+          disabled={requestId !== null}
           placeholder="ex. : je suis en master, pas en licence"
           onChange={(e) => {
             setReason(e.target.value);
           }}
         />
-        {save.error && <p className="ink" style={{ color: "#8a2a33" }}>{save.error.message}</p>}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 4 }}>
-          <button type="button" className="ink-button" disabled={save.isPending || text.trim() === fact.content} onClick={() => { save.mutate("correct"); }}>
-            Corriger
-          </button>
-          <button type="button" className="ink-button ghost" disabled={save.isPending || reason.trim().length < 3} onClick={() => { save.mutate("remove"); }}>
-            Retirer la fiche
-          </button>
-          <button type="button" className="ink-button plain" onClick={onClose}>
-            Annuler
-          </button>
-        </div>
-        <p className="ink" style={{ fontSize: 12 }}>
-          Je n'apprendrai plus l'ancienne version.
-        </p>
+        {save.error && <p className="ink" style={{ color: "#8a2a33" }}>{save.error.message === "too_many" ? "Beaucoup de corrections aujourd'hui : réessaie demain." : save.error.message}</p>}
+        {requestId === null && (
+          <div className="row-wrap">
+            <button type="button" className="ink-button" disabled={save.isPending || text.trim() === fact.content} onClick={() => { save.mutate("correct"); }}>
+              Enregistrer
+            </button>
+            <button type="button" className="ink-button ghost" disabled={save.isPending || reason.trim().length < 3} onClick={() => { save.mutate("remove"); }}>
+              Retirer ce fragment
+            </button>
+          </div>
+        )}
       </div>
-    </>
+      <Process request={request} />
+    </Sheet>
   );
 }
 
-function FactCard({ fact, index, onEdit }: { fact: Fact; index: number; onEdit?: () => void }) {
+function FactCard({ fact, label, onEdit, onSource }: { fact: Fact; label: string; onEdit?: () => void; onSource?: () => void }) {
   const s = stamp(fact.nature, fact.reportedByName);
   const lit = reliability(fact.confidence);
   return (
     <article className="index-card">
-      <span className="tab">F{String(index + 1).padStart(3, "0")}</span>
-      <p>{fact.content}</p>
-      <div className="card-foot">
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span className="ink-label">fiabilité</span>
-          <Marks lit={lit} label={`fiabilité ${String(lit)} sur 5`} />
-        </div>
+      <span className="tab">{label}</span>
+      <div className="card-top">
         <span className={s.dashed ? "stamp dashed" : "stamp"} style={{ color: s.ink, transform: `rotate(${String(s.tilt)}deg)` }}>
           {s.text}
         </span>
+        <Marks lit={lit} label={`fiabilité ${String(lit)} sur 5`} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        {fact.source ? (
+      <p>{fact.content}</p>
+      <div className="card-dates">
+        noté {when(fact.createdAt)}
+        {fact.corrected && (
+          <>
+            <br />
+            corrigé {when(fact.corrected.at)}
+            {fact.corrected.by ? ` par ${fact.corrected.by}` : ""}
+          </>
+        )}
+      </div>
+      <div className="card-actions">
+        {onSource ? (
+          <button type="button" className="card-action" onClick={onSource}>
+            source
+          </button>
+        ) : fact.source ? (
           <a href={fact.source} target="_blank" rel="noreferrer noopener">
             source ↗
           </a>
         ) : (
-          <span />
+          <span className="ink-label">{fact.corrected ? "écrit par la personne" : "sans source"}</span>
         )}
         {onEdit && (
           <button type="button" className="card-action" onClick={onEdit}>
@@ -117,47 +122,77 @@ function FactCard({ fact, index, onEdit }: { fact: Fact; index: number; onEdit?:
   );
 }
 
-function Relation({ data }: { data: DossierData }) {
+function Relation({ data, onSource }: { data: DossierData; onSource: (id: string) => void }) {
   const r = data.relationship;
   if (!r) return <p className="empty">Je ne lui ai jamais vraiment parlé.</p>;
-  const max = Math.max(1, ...data.affinityHistory.map((v) => Math.abs(v)));
   return (
     <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-          <span style={{ color: "var(--muted)" }}>affinité</span>
-          <span>{signed(r.affinity)}</span>
+      <div className="duo">
+        <div className="duo-aff">
+          <span className="label">Affinité</span>
+          <b>{signed(r.affinity)}</b>
+          <small>comment {data.isBot ? "il" : "on"} me traite</small>
         </div>
-        <div className="bars" aria-hidden="true">
-          {Array.from({ length: 20 }, (_, i) => (
-            <i key={i} style={i < Math.round((r.affinity + 100) / 10) ? { background: "var(--red)" } : undefined} />
-          ))}
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-          <span style={{ color: "var(--muted)" }}>confiance</span>
-          <span>{r.trust}</span>
-        </div>
-        <div className="bars" aria-hidden="true">
-          {Array.from({ length: 20 }, (_, i) => (
-            <i key={i} style={i < Math.round(r.trust / 5) ? { background: "var(--text)" } : undefined} />
-          ))}
+        <div className="duo-trust">
+          <span className="label">Confiance</span>
+          <b>{r.trust}</b>
+          <small>ce que je crois de ce qui est dit</small>
         </div>
       </div>
       {r.feeling && (
-        <div style={{ fontSize: 14, color: "var(--text-soft)" }}>
-          Ressenti : <span style={{ color: "var(--text)" }}>{r.feeling}</span>
+        <div className="block">
+          <span className="label">Mon ressenti</span>
+          <p>« {r.feeling} »</p>
         </div>
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 12, color: "var(--faint)" }}>affinité sur 30 jours</div>
-        <div className="history" role="img" aria-label={`Affinité sur 30 jours, de ${signed(data.affinityHistory[0] ?? 0)} à ${signed(r.affinity)}`}>
-          {data.affinityHistory.map((v, i) => (
-            <i key={i} style={{ height: `${String(Math.max(4, Math.round((Math.abs(v) / max) * 56)))}px` }} />
-          ))}
-        </div>
+      <div className="section-head">
+        <span className="label">30 derniers jours</span>
+        <span className="legend">
+          <span>
+            <i style={{ background: "var(--red)" }} />
+            affinité
+          </span>
+          <span>
+            <i style={{ background: "var(--blue)" }} />
+            confiance
+          </span>
+        </span>
       </div>
+      <LineChart
+        points={data.history}
+        series={[
+          { key: "affinity", label: "affinité", color: "var(--red)", format: signed },
+          { key: "trust", label: "confiance", color: "var(--blue)" },
+        ]}
+        min={Math.min(-20, ...data.history.map((h) => h.affinity)) - 5}
+        max={100}
+        ticks={[0, 50, 100]}
+        label={`Affinité et confiance sur 30 jours : affinité ${signed(r.affinity)}, confiance ${String(r.trust)} aujourd'hui`}
+      />
+      <h3 className="label">Derniers événements</h3>
+      {data.events.length === 0 ? (
+        <p className="empty">Rien de notable ces 30 derniers jours.</p>
+      ) : (
+        <ul className="plain events">
+          {data.events.map((e, i) => (
+            <li key={i}>
+              <div className="row-wrap">
+                <time dateTime={e.createdAt}>{when(e.createdAt)}</time>
+                {e.affinityDelta !== 0 && <span className="chip aff">affinité {signed(e.affinityDelta)}</span>}
+                {e.trustDelta !== 0 && <span className="chip trust">confiance {signed(e.trustDelta)}</span>}
+              </div>
+              <span className="event-why">
+                {e.reason}
+                {e.sourceMessageId && (
+                  <button type="button" className="link-button" onClick={() => { onSource(e.sourceMessageId ?? ""); }}>
+                    source
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -165,146 +200,122 @@ function Relation({ data }: { data: DossierData }) {
 export function Dossier() {
   const { id = "" } = useParams();
   const { data, error } = useQuery({ queryKey: ["dossier", id], queryFn: () => getJson<DossierData>(`/api/dossiers/${id}`) });
-  const [editing, setEditing] = useState<{ fact: Fact; code: string } | null>(null);
+  const [editing, setEditing] = useState<{ fact: Fact; label: string } | null>(null);
+  const [source, setSource] = useState<{ id: string; title: string } | null>(null);
 
-  if (error instanceof HttpError && error.status === 404)
+  if (error instanceof HttpError && error.status === 404) {
     return (
-      <main className="soon">
-        <h1 style={{ fontSize: 28 }}>Ce dossier n'existe pas.</h1>
-        <p style={{ color: "var(--muted)", margin: 0 }}>Ou il a été effacé à la demande de son propriétaire.</p>
-        <Link to="/archives">← Archives</Link>
+      <main className="page">
+        <p className="empty">Aucun dossier ici. Soit je ne connais pas cette personne, soit elle a quitté mes archives.</p>
+        <Link to="/archives">← Les archives</Link>
       </main>
     );
+  }
   if (!data) return <main className="page" aria-busy="true" />;
 
-  const byCategory = new Map<string, Fact[]>();
-  for (const fact of data.facts) byCategory.set(fact.category, [...(byCategory.get(fact.category) ?? []), fact]);
-  let ref = 0;
-  const drawers = CATEGORY_ORDER.filter((c) => byCategory.has(c)).map((c) => {
-    const facts = byCategory.get(c) ?? [];
-    const first = ref;
-    ref += facts.length;
-    const meta = CATEGORIES[c] ?? { label: c.toUpperCase(), color: "#b9b9c3" };
-    return {
-      key: c,
-      label: meta.label,
-      color: meta.color,
+  const codes = new Map(data.facts.map((f, i) => [f.id, code(i)]));
+  const known = new Map<string, Category>(data.categories.map((c) => [c.key, c]));
+  const drawers = data.categories
+    .map((c) => ({ c, facts: data.facts.filter((f) => f.category === c.key) }))
+    .filter((d) => d.facts.length > 0)
+    .map(({ c, facts }) => ({
+      key: c.key,
+      label: c.label.toUpperCase(),
+      sublabel: c.createdBy === "archive-9" && c.createdAt ? `tiroir créé par moi le ${dayMonth(c.createdAt)}` : undefined,
+      color: c.color,
       count: facts.length,
       content: (
         <CardList
+          label={c.label}
           items={facts}
-          label={meta.label}
-          render={(fact, i) => {
-            const code = `F${String(first + i + 1).padStart(3, "0")}`;
-            return (
+          render={(f) => (
+            <div style={{ ["--cc" as string]: categoryOf(f.category, known).color }}>
               <FactCard
-                fact={fact}
-                index={first + i}
-                onEdit={
-                  data.canEdit
-                    ? () => {
-                        setEditing({ fact, code });
-                      }
-                    : undefined
-                }
+                fact={f}
+                label={codes.get(f.id) ?? ""}
+                onSource={f.sourceMessageId ? () => { setSource({ id: f.sourceMessageId ?? "", title: `Source de ${codes.get(f.id) ?? ""}` }); } : undefined}
+                onEdit={data.canEdit ? () => { setEditing({ fact: f, label: codes.get(f.id) ?? "" }); } : undefined}
               />
-            );
-          }}
-        />
-      ),
-    };
-  });
-
-  return (
-    <main className="page" style={{ gap: 32 }}>
-      <Link to="/archives" style={{ fontSize: 13, textDecoration: "none" }}>
-        ← Archives
-      </Link>
-
-      <section aria-label="Identité" className="px" style={{ background: "var(--panel)", padding: 32, display: "flex", flexWrap: "wrap", gap: 32, alignItems: "flex-start" }}>
-        <span className="avatar" aria-hidden="true" style={{ width: 96, height: 96, background: avatarColor(data.id), fontSize: 40 }}>
-          {initials(data.name)}
-        </span>
-        <div style={{ flex: "1 1 480px", minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="label">
-            Dossier n°{data.id} · ouvert le {new Date(data.firstSeenAt).toLocaleDateString("fr-FR")}
-            {data.isBot ? " · bot" : ""}
-          </div>
-          <h1 style={{ fontSize: 44, lineHeight: 1.05 }}>{data.name}</h1>
-          {data.aliases.length > 0 && <div style={{ fontSize: 13, color: "var(--faint)" }}>aussi connu sous : {data.aliases.join(", ")}</div>}
-          {data.tagline && (
-            <div className="bubble px-red" style={{ marginTop: 8 }}>
-              « {data.tagline} »
             </div>
           )}
-        </div>
-        <div style={{ flex: "0 1 260px", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-          <div className="stat px-dim" style={{ padding: 14, background: "var(--panel-deep)" }}>
-            <b style={{ fontSize: 24 }}>{formatCount(data.messages)}</b>
-            <span>messages lus</span>
-          </div>
-          <div className="stat px-dim" style={{ padding: 14, background: "var(--panel-deep)" }}>
-            <b style={{ fontSize: 24 }}>{formatCount(data.facts.length)}</b>
-            <span>fiches</span>
-          </div>
-        </div>
-      </section>
+        />
+      ),
+    }));
 
-      <div className="row">
-        <div style={{ flex: "999 1 600px", minWidth: 0, display: "flex", flexDirection: "column", gap: 28 }}>
-          {data.summary && (
-            <section aria-labelledby="resume" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <h2 id="resume" style={{ fontSize: 18 }}>
-                Ce que j'en retiens
-              </h2>
-              <p style={{ margin: 0, color: "var(--text-soft)", maxWidth: "70ch" }}>{data.summary}</p>
-            </section>
-          )}
-          <section aria-labelledby="fiches" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+  return (
+    <main className="page">
+      <div className="dossier-layout">
+        <div className="stack-24">
+          <section className="panel px dossier-head">
+            <div className="id-row">
+              <Avatar id={data.id} name={data.name} hash={data.avatar} size={88} />
+              <div className="id-text">
+                <h1>{data.name}</h1>
+                {data.aliases.length > 0 && <div className="aliases">aussi : {data.aliases.join(", ")}</div>}
+                <div className="chips">
+                  <span className="chip">dossier n°{data.id.slice(-4)}</span>
+                  <span className="chip">ouvert le {dayMonth(data.firstSeenAt)}</span>
+                  {data.changedAt && <span className="chip">modifié {ago(data.changedAt)}</span>}
+                  <span className="chip">{formatCount(data.facts.length)} fragments</span>
+                  <span className="chip">{formatCount(data.messages)} messages</span>
+                </div>
+              </div>
+            </div>
+            {(data.tagline ?? data.summary) && (
+              <div className="split">
+                <div className="block">
+                  <span className="label">En une phrase</span>
+                  <p className="pull">{data.tagline ?? "…"}</p>
+                  {data.summaryAt && <span className="meta">écrite {when(data.summaryAt)}</span>}
+                </div>
+                <div className="block">
+                  <span className="label">Résumé</span>
+                  <p>{data.summary ?? "Pas encore assez de fragments."}</p>
+                  {data.summaryAt && <span className="meta">réécrit {when(data.summaryAt)}</span>}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section aria-labelledby="fragments" className="stack-12">
             <div className="section-head">
-              <h2 id="fiches" style={{ fontSize: 18 }}>
-                Fiches
-              </h2>
-              <span style={{ fontSize: 12, color: "var(--faint)" }}>
-                {data.facts.length} fiches dans {drawers.length} tiroirs
-              </span>
+              <h2 id="fragments">Ses fragments</h2>
+              <span className="meta">{drawers.length} tiroirs</span>
             </div>
             {drawers.length === 0 ? <p className="empty">Rien d'archivé pour l'instant.</p> : <Cabinet drawers={drawers} />}
           </section>
         </div>
 
-        <aside aria-label="Notre relation" style={{ flex: "1 1 320px", minWidth: 0, display: "flex", flexDirection: "column", gap: 20 }}>
+        <aside className="stack-18">
           <section className="panel px-dim">
-            <h2>{data.isBot ? "Ce que je pense de ce bot" : "Ce que je pense de cette personne"}</h2>
-            <Relation data={data} />
+            <h2>Notre relation</h2>
+            <Relation data={data} onSource={(messageId) => { setSource({ id: messageId, title: "Ce qui l'a fait bouger" }); }} />
           </section>
-          {data.events.length > 0 && (
-            <section className="panel px-dim">
-              <h2>Derniers événements</h2>
-              {data.events.map((e, i) => (
-                <div key={i} style={{ fontSize: 13, color: "var(--text-soft)" }}>
-                  {signed(e.affinityDelta)} · {e.reason}
-                </div>
-              ))}
-            </section>
-          )}
           {data.isMine && (
             <section className="panel px-dim">
-              <h2>C'est ton dossier</h2>
-              <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
-                « modifier » sur une fiche pour la corriger ou la retirer. Pour disparaître de mes archives : <code>/oublie-moi</code> sur Discord.
-              </p>
+              <h2>Si c'est ton dossier</h2>
+              <p className="meta strong">Tu peux corriger ou retirer chaque fragment ici. Pour tout effacer, tape <code>/oublie-moi</code> sur Discord.</p>
             </section>
           )}
         </aside>
       </div>
+
       {editing && (
-        <EditCard
+        <EditSheet
           fact={editing.fact}
-          code={editing.code}
+          label={editing.label}
           memberId={data.id}
           onClose={() => {
             setEditing(null);
+          }}
+        />
+      )}
+      {source && (
+        <SourceSheet
+          messageId={source.id}
+          title={source.title}
+          onClose={() => {
+            setSource(null);
           }}
         />
       )}

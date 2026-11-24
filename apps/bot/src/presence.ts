@@ -67,6 +67,7 @@ export class Presence {
       await recordAiUsage(db, usage.map((u) => ({ ...u, runId, detail: "statut", version: this.deps.version })));
       if (!status) return;
       await settings.set("statusLines", [status, ...previous.filter((p) => p !== status)].slice(0, KEPT), null);
+      await settings.set("statusAt", new Date().toISOString(), null);
       log.info({ status }, "status renewed");
     } catch (error) {
       log.warn({ err: error }, "status renewal failed");

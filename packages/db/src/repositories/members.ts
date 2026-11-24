@@ -8,6 +8,8 @@ export interface MemberInput {
   displayName: string | null;
   isBot: boolean;
   isKnownAiBot: boolean;
+  /** Discord avatar hash; absent leaves the stored one. */
+  avatar?: string | null;
 }
 
 /**
@@ -26,6 +28,7 @@ export async function upsertMember(db: Database, input: MemberInput): Promise<vo
         username: input.username,
         displayName: input.displayName,
         isBot: input.isBot,
+        avatar: input.avatar === undefined ? members.avatar : input.avatar,
         // Once recognised as an AI agent, a bot stays one.
         isKnownAiBot: sql`${members.isKnownAiBot} or ${input.isKnownAiBot}`,
         lastSeenAt: sql`now()`,
@@ -102,7 +105,7 @@ export async function syncGuildMembers(db: Database, current: MemberInput[]): Pr
         .values({ ...member, inGuild: true, nameHistory: [{ name, seenAt: new Date().toISOString() }] })
         .onConflictDoUpdate({
           target: members.id,
-          set: { username: member.username, displayName: member.displayName, inGuild: true },
+          set: { username: member.username, displayName: member.displayName, inGuild: true, avatar: member.avatar ?? null },
         });
     }
     const ids = current.map((m) => m.id);

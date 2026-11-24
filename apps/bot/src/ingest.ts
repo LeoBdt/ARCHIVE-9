@@ -47,7 +47,7 @@ export class Ingest {
   async onCreate(message: Message): Promise<void> {
     const { db, settings, knownAiBotIds } = this.deps;
     if (!isArchived(settings, message)) return;
-    // Command answers (/mafiche…) are system text, sometimes private to one member.
+    // Command answers (/mondossier…) are system text, sometimes private to one member.
     if (message.flags.has(MessageFlags.Ephemeral) || message.interactionMetadata) return;
     if ((await optedOutIds(db, [message.author.id])).has(message.author.id)) return;
 
@@ -56,6 +56,7 @@ export class Ingest {
       username: message.author.username,
       displayName: message.member?.displayName ?? message.author.globalName,
       isBot: message.author.bot,
+      avatar: message.author.avatar,
       // A bot that writes in AGENTS is an AI agent from then on (see upsertMember).
       isKnownAiBot: knownAiBotIds.has(message.author.id) || (message.author.bot && isInAgents(message.channel, this.deps.agentsCategoryId)),
     };

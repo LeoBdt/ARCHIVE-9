@@ -1,3 +1,4 @@
+import { DEFAULT_REFLECTION_HOURS, type ReflectionHours } from "@archive-9/core";
 import { sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { settings } from "../schema.ts";
@@ -11,10 +12,14 @@ export interface BotSettings {
   debounceMs: number;
   /** Profile status lines, newest first: the current one, then a few to avoid repeats. */
   statusLines: string[];
+  /** When the current status line was written. */
+  statusAt: string | null;
+  /** Local hours of the midday and evening reflections. */
+  reflectionHours: ReflectionHours;
   /** Written by the bot at start-up, read by the site. */
   botVersion: { label: string; startedAt: string } | null;
   /** The server's text channels, published by the bot so the site can name them. */
-  channelDirectory: { id: string; name: string; category: string | null }[];
+  channelDirectory: { id: string; name: string; category: string | null; isPublic?: boolean }[];
 }
 
 const KEYS = {
@@ -24,6 +29,8 @@ const KEYS = {
   listenedChannelIds: "listened_channel_ids",
   debounceMs: "debounce_ms",
   statusLines: "status_lines",
+  statusAt: "status_at",
+  reflectionHours: "reflection_hours",
   botVersion: "bot_version",
   channelDirectory: "channel_directory",
 } as const satisfies Record<keyof BotSettings, string>;
@@ -35,6 +42,8 @@ export const DEFAULT_SETTINGS: BotSettings = {
   listenedChannelIds: [],
   debounceMs: 8_000,
   statusLines: [],
+  statusAt: null,
+  reflectionHours: DEFAULT_REFLECTION_HOURS,
   botVersion: null,
   channelDirectory: [],
 };
@@ -46,7 +55,7 @@ export async function loadSettings(db: Database, seed: Partial<BotSettings> = {}
     .insert(settings)
     .values(
       Object.entries(KEYS)
-        // A null default (bot_version) means "not known yet": nothing to store.
+        // A null default (bot_version, status_at) means "not known yet": nothing to store.
         .filter(([field]) => initial[field as keyof BotSettings] !== null)
         .map(([field, key]) => ({ key, value: initial[field as keyof BotSettings] })),
     )

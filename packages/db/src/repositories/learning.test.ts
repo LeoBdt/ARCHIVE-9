@@ -178,7 +178,7 @@ describe.skipIf(!url)("learning repositories", () => {
     await applyAnalysis(db, write({ facts: [fact({ memberId: "3", category: "identity", content: "En licence d'info." })] }));
     const old = (await currentFacts(db, "3", 50)).find((f) => f.content === "En licence d'info.");
     expect(await correctOwnFact(db, "2", old?.id ?? "", "Volé.", "", "site")).toBeNull();
-    expect(await correctOwnFact(db, "3", old?.id ?? "", "En master d'info.", "je suis en master", "site")).toEqual({ before: "En licence d'info.", after: "En master d'info." });
+    expect(await correctOwnFact(db, "3", old?.id ?? "", "En master d'info.", "je suis en master", "site")).toMatchObject({ before: "En licence d'info.", after: "En master d'info." });
     const now = await currentFacts(db, "3", 50);
     expect(now.find((f) => f.content === "En master d'info.")).toMatchObject({ category: "identity", nature: "fact" });
     expect(now.some((f) => f.id === old?.id)).toBe(false);
@@ -260,9 +260,10 @@ describe.skipIf(!url)("learning repositories", () => {
     const initial = { mood: "neuf", opinions: [], runningJokes: [], notes: "" };
     await currentSelfState(db, initial);
     expect(await lastReflectionAt(db)).toBeNull();
-    const version = await saveSelfState(db, { ...initial, mood: "amusé" }, "reflection", null);
-    expect(version).toBe(2);
+    const saved = await saveSelfState(db, { ...initial, mood: "amusé" }, "reflection", null);
+    expect(saved).toEqual({ version: 2, label: 1.5 });
     expect(await currentSelfState(db, initial)).toMatchObject({ mood: "amusé" });
+    expect((await saveSelfState(db, initial, "midday", null)).label).toBe(2);
     expect(await lastReflectionAt(db)).toBeInstanceOf(Date);
   });
 

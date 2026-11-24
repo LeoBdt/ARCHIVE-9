@@ -9,6 +9,8 @@ export interface AiUsageInput {
   provider: string;
   model: string;
   upstreamProvider: string | null;
+  /** The model a router really used, when it differs from `model`. */
+  servedModel?: string | null;
   fallbackReason: string | null;
   inputTokens: number;
   outputTokens: number;

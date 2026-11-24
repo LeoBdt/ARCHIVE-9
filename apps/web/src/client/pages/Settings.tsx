@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { getJson, postJson, type AccessRow, type SettingsView, type Viewer } from "../api.ts";
-import { avatarColor, initials } from "../format.ts";
+import { Avatar } from "../components/Avatar.tsx";
+import { Select } from "../components/Select.tsx";
+import { Sheet } from "../components/Sheet.tsx";
+import { Tabs } from "../components/Tabs.tsx";
 
 const LEVELS = [
   ["observateur", "Il ne parle que quand on lui parle."],
@@ -10,26 +13,59 @@ const LEVELS = [
   ["bavard", "Au plus 12 par heure et par salon."],
 ];
 
-function confirmed(text: string): boolean {
-  return window.confirm(text);
+type Change = Partial<Omit<SettingsView, "channels">>;
+const HOURS: [string, string][] = Array.from({ length: 24 }, (_, h) => [String(h), `${String(h).padStart(2, "0")}:00`]);
+
+function Confirm({ text, onYes, onClose }: { text: string; onYes: () => void; onClose: () => void }) {
+  return (
+    <Sheet title={text} onClose={onClose}>
+      <div className="row-wrap">
+        <button
+          type="button"
+          className="button"
+          onClick={() => {
+            onYes();
+            onClose();
+          }}
+        >
+          Confirmer
+        </button>
+        <button type="button" className="button-ghost" onClick={onClose}>
+          Annuler
+        </button>
+      </div>
+    </Sheet>
+  );
 }
 
 function SettingsTab() {
   const client = useQueryClient();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: () => getJson<SettingsView>("/api/settings") });
+  const [ask, setAsk] = useState<{ text: string; change: Change } | null>(null);
+  const [q, setQ] = useState("");
   const save = useMutation({
-    mutationFn: (change: Partial<SettingsView>) => postJson("/api/settings", change),
+    mutationFn: (change: Change) => postJson("/api/settings", change),
     onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }),
   });
   if (!data) return <div aria-busy="true" />;
-  const change = (text: string, value: Partial<SettingsView>) => {
-    if (confirmed(text)) save.mutate(value);
+  const change = (text: string, value: Change) => {
+    setAsk({ text, change: value });
   };
+  const listened = new Set(data.listenedChannelIds);
+  const needle = q.trim().toLowerCase();
+  const groups = new Map<string, SettingsView["channels"]>();
+  for (const c of data.channels) {
+    if (needle && !c.name.toLowerCase().includes(needle)) continue;
+    const key = c.category ?? "Sans catégorie";
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  const setGroup = (ids: string[], on: boolean) => ({ listenedChannelIds: on ? [...new Set([...data.listenedChannelIds, ...ids])] : data.listenedChannelIds.filter((id) => !ids.includes(id)) });
+
   return (
-    <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 24 }}>
-      <section className="panel px-dim" style={{ background: "var(--panel)" }}>
+    <div className="grid settings-grid">
+      <section className="panel px-dim">
         <h2>Pause</h2>
-        <p style={{ margin: 0, fontSize: 14, color: "var(--muted)" }}>En pause, ARCHIVE-9 n'écrit plus rien, mais il écoute et archive toujours.</p>
+        <p className="soft">En pause, ARCHIVE-9 n'écrit plus rien, mais il écoute et archive toujours.</p>
         <button
           type="button"
           className="button"
@@ -41,65 +77,143 @@ function SettingsTab() {
           {data.paused ? "Relancer ARCHIVE-9" : "Mettre ARCHIVE-9 en pause"}
         </button>
       </section>
-      <section className="panel px-dim" style={{ background: "var(--panel)" }}>
+
+      <section className="panel px-dim">
         <h2>Sa spontanéité dans AGENTS</h2>
-        <div role="radiogroup" aria-label="Niveau" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+        <div role="radiogroup" aria-label="Niveau" className="levels">
           {LEVELS.map(([name], n) => (
             <button
               key={name}
               type="button"
               role="radio"
               aria-checked={data.spontaneity === n}
+              className={data.spontaneity === n ? "on" : undefined}
               onClick={() => {
                 change(`Passer la spontanéité à « ${name ?? ""} » ?`, { spontaneity: n });
               }}
-              style={{ fontFamily: "var(--pixel)", fontSize: 11, background: data.spontaneity === n ? "var(--text)" : "#16161c", color: data.spontaneity === n ? "var(--bg)" : "var(--text)", border: 0, padding: "12px 6px", minHeight: 52, cursor: "pointer" }}
             >
-              <span style={{ display: "block", fontSize: 16 }}>{n}</span>
+              <b>{n}</b>
               {name}
             </button>
           ))}
         </div>
-        <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>{LEVELS[data.spontaneity]?.[1]}</p>
+        <p className="soft small">{LEVELS[data.spontaneity]?.[1]}</p>
       </section>
-      <section className="panel px-dim" style={{ background: "var(--panel)" }}>
-        <h2>Salons qu'ARCHIVE-9 écoute</h2>
-        {data.channels.length === 0 && <p className="empty">La liste des salons arrive au prochain démarrage du bot.</p>}
-        {data.channels.map((c) => {
-          const on = data.listenedChannelIds.includes(c.id);
-          return (
-            <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 14, minHeight: 36, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={() => {
-                  change(on ? `Ne plus écouter #${c.name} ?` : `Écouter et archiver #${c.name} ?`, {
-                    listenedChannelIds: on ? data.listenedChannelIds.filter((id) => id !== c.id) : [...data.listenedChannelIds, c.id],
-                  });
-                }}
-                style={{ width: 18, height: 18, accentColor: "var(--red)" }}
-              />
-              <span>#{c.name}</span>
-              {c.category && <span style={{ fontSize: 12, color: "var(--faint)" }}>{c.category}</span>}
-            </label>
-          );
-        })}
+
+      <section className="panel px-dim">
+        <h2>Ses réflexions</h2>
+        <div className="row-wrap">
+          <Select
+            label="Midi"
+            value={String(data.reflectionHours.midday)}
+            options={HOURS.filter(([h]) => Number(h) < data.reflectionHours.evening)}
+            onChange={(h) => {
+              change(`Réflexion de midi à ${h.padStart(2, "0")}:00 ?`, { reflectionHours: { ...data.reflectionHours, midday: Number(h) } });
+            }}
+          />
+          <Select
+            label="Soir"
+            value={String(data.reflectionHours.evening)}
+            options={HOURS.filter(([h]) => Number(h) > data.reflectionHours.midday)}
+            onChange={(h) => {
+              change(`Réflexion du soir à ${h.padStart(2, "0")}:00 ?`, { reflectionHours: { ...data.reflectionHours, evening: Number(h) } });
+            }}
+          />
+        </div>
+        <p className="soft small">À midi, une pause courte (humeur, journal, une blague au plus). Le soir, la grande : opinions, résolutions, retours et rangement des tiroirs.</p>
       </section>
-      <section className="panel px-dim" style={{ background: "var(--panel)" }}>
+
+      <section className="panel px-dim">
         <h2>Signaler le mode secours</h2>
-        <label style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 14, cursor: "pointer" }}>
+        <label className="check">
           <input
             type="checkbox"
             checked={data.showFallbackTag}
             onChange={() => {
               change("Changer l'affichage du mode secours ?", { showFallbackTag: !data.showFallbackTag });
             }}
-            style={{ width: 18, height: 18, accentColor: "var(--red)" }}
           />
           Ajouter « -# noyau-&lt;modèle&gt; » à ses messages quand un modèle de secours répond
         </label>
-        <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>Pour revenir à une ancienne version de lui, va sur la page Mémoire.</p>
       </section>
+
+      <section className="panel px-dim span-all">
+        <div className="section-head">
+          <h2>Salons qu'il écoute</h2>
+          <span className="meta strong">
+            {listened.size} sur {data.channels.length}
+          </span>
+        </div>
+        {data.channels.length === 0 ? (
+          <p className="empty">La liste des salons arrive au prochain démarrage du bot.</p>
+        ) : (
+          <>
+            <label htmlFor="channel-q" className="sr-only">
+              Chercher un salon
+            </label>
+            <input
+              id="channel-q"
+              type="search"
+              className="search px-dim"
+              placeholder="Chercher un salon…"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+              }}
+            />
+            <div className="scroll-box channel-box">
+              {[...groups].map(([category, list]) => {
+                const all = list.every((c) => listened.has(c.id));
+                return (
+                  <details key={category} open className="channel-group">
+                    <summary>
+                      <span className="label">{category}</span>
+                      <span className="meta"> · {list.filter((c) => listened.has(c.id)).length}/{list.length}</span>
+                      <button
+                        type="button"
+                        className="link-button push-right"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          change(all ? `Ne plus écouter les ${String(list.length)} salons de ${category} ?` : `Écouter tous les salons de ${category} ?`, setGroup(list.map((c) => c.id), !all));
+                        }}
+                      >
+                        {all ? "tout retirer" : "tout écouter"}
+                      </button>
+                    </summary>
+                    {list.map((c) => {
+                      const on = listened.has(c.id);
+                      return (
+                        <label key={c.id} className="check">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() => {
+                              change(on ? `Ne plus écouter #${c.name} ?` : `Écouter et archiver #${c.name} ?`, setGroup([c.id], !on));
+                            }}
+                          />
+                          #{c.name}
+                          {c.isPublic === false && <span className="meta"> · privé</span>}
+                        </label>
+                      );
+                    })}
+                  </details>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
+      {ask && (
+        <Confirm
+          text={ask.text}
+          onYes={() => {
+            save.mutate(ask.change);
+          }}
+          onClose={() => {
+            setAsk(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -107,6 +221,7 @@ function SettingsTab() {
 function AccessTab() {
   const client = useQueryClient();
   const [q, setQ] = useState("");
+  const [ask, setAsk] = useState<AccessRow | null>(null);
   const { data } = useQuery({ queryKey: ["access"], queryFn: () => getJson<AccessRow[]>("/api/access") });
   const toggle = useMutation({
     mutationFn: (row: AccessRow) => postJson("/api/access", { memberId: row.id, admin: !row.isAdmin }),
@@ -114,10 +229,8 @@ function AccessTab() {
   });
   const rows = (data ?? []).filter((r) => r.name.toLowerCase().includes(q.toLowerCase())).sort((a, b) => Number(b.isOwner) - Number(a.isOwner) || Number(b.isAdmin) - Number(a.isAdmin));
   return (
-    <section aria-labelledby="acces" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <h2 id="acces" style={{ fontSize: 18 }}>
-        Qui est admin
-      </h2>
+    <section aria-labelledby="acces" className="panel px-dim">
+      <h2 id="acces">Qui peut régler ARCHIVE-9</h2>
       <label htmlFor="acces-q" className="sr-only">
         Chercher un membre
       </label>
@@ -130,31 +243,32 @@ function AccessTab() {
         onChange={(e) => {
           setQ(e.target.value);
         }}
-        style={{ maxWidth: 420 }}
       />
-      <ul className="plain px-dim" style={{ background: "var(--panel)", gap: 0 }}>
-        {rows.slice(0, 80).map((r) => (
-          <li key={r.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderBottom: "1px solid var(--line-soft)" }}>
-            <span className="avatar" style={{ width: 32, height: 32, background: avatarColor(r.id), fontSize: 12 }}>
-              {initials(r.name)}
-            </span>
-            <span style={{ flex: 1 }}>{r.name}</span>
-            {(r.isOwner || r.isAdmin) && <span style={{ fontFamily: "var(--pixel)", fontSize: 11, color: r.isOwner ? "var(--red)" : "var(--text)" }}>{r.isOwner ? "PROPRIÉTAIRE" : "ADMIN"}</span>}
+      <ul className="plain scroll-box">
+        {rows.map((r) => (
+          <li key={r.id} className="access-row">
+            <Avatar id={r.id} name={r.name} hash={r.avatar} size={32} />
+            <span className="grow">{r.name}</span>
+            {(r.isOwner || r.isAdmin) && <span className="label small" style={{ color: r.isOwner ? "var(--red)" : "var(--text)" }}>{r.isOwner ? "PROPRIÉTAIRE" : "ADMIN"}</span>}
             {!r.isOwner && (
-              <button
-                type="button"
-                className="button-ghost"
-                style={r.isAdmin ? { color: "var(--red-soft)", borderColor: "var(--red-soft)" } : { color: "var(--text)", borderColor: "var(--text)" }}
-                onClick={() => {
-                  if (confirmed(r.isAdmin ? `Retirer les droits d'admin à ${r.name} ?` : `Nommer ${r.name} admin ?`)) toggle.mutate(r);
-                }}
-              >
+              <button type="button" className="button-ghost small" onClick={() => { setAsk(r); }}>
                 {r.isAdmin ? "Retirer" : "Nommer admin"}
               </button>
             )}
           </li>
         ))}
       </ul>
+      {ask && (
+        <Confirm
+          text={ask.isAdmin ? `Retirer les droits d'admin à ${ask.name} ?` : `Nommer ${ask.name} admin ?`}
+          onYes={() => {
+            toggle.mutate(ask);
+          }}
+          onClose={() => {
+            setAsk(null);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -167,37 +281,22 @@ export function Settings({ viewer }: { viewer: Viewer }) {
         <h1 style={{ fontSize: 28 }}>Réservé aux admins.</h1>
       </main>
     );
-  const tabs: ["settings" | "access", string][] = viewer.isOwner
-    ? [
-        ["settings", "Réglages"],
-        ["access", "Accès"],
-      ]
-    : [["settings", "Réglages"]];
   return (
-    <main className="page" style={{ gap: 28 }}>
-      <div className="page-head">
-        <div className="label" style={{ color: "var(--red)" }}>
-          Admin
-        </div>
-        <h1>Réglages d'ARCHIVE-9.</h1>
-        <p>Chaque changement demande une confirmation et apparaît au journal.</p>
-      </div>
-      <div role="tablist" aria-label="Sections" style={{ display: "flex", flexWrap: "wrap", gap: 6, borderBottom: "2px solid var(--line)", paddingBottom: 12 }}>
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => {
-              setTab(key);
-            }}
-            style={{ fontFamily: "var(--pixel)", fontSize: 13, background: tab === key ? "var(--red)" : "var(--panel)", color: tab === key ? "var(--bg)" : "var(--text)", border: 0, padding: "12px 16px", minHeight: 44, cursor: "pointer" }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+    <main className="page">
+      <h1 className="page-title">Réglages</h1>
+      <Tabs
+        label="Réglages"
+        value={tab}
+        onChange={setTab}
+        tabs={
+          viewer.isOwner
+            ? [
+                ["settings", "Réglages"],
+                ["access", "Accès"],
+              ]
+            : [["settings", "Réglages"]]
+        }
+      />
       {tab === "settings" ? <SettingsTab /> : <AccessTab />}
     </main>
   );

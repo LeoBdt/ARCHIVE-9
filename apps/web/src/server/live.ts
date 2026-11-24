@@ -1,7 +1,21 @@
 import type { SqlClient } from "@archive-9/db";
 
 /** The tables whose changes the site shows; anything else on the channel is ignored. */
-export const LIVE_TYPES = new Set(["decisions", "actions_log", "profile_facts", "relationship_events", "self_state_versions", "skills", "settings", "feedback", "self_state"]);
+export const LIVE_TYPES = new Set([
+  "decisions",
+  "actions_log",
+  "profile_facts",
+  "relationship_events",
+  "self_state_versions",
+  "skills",
+  "settings",
+  "feedback",
+  "self_state",
+  "learned",
+  "site_requests",
+  "releases",
+  "fact_categories",
+]);
 
 export interface Live {
   subscribe: (listener: (type: string) => void) => () => void;

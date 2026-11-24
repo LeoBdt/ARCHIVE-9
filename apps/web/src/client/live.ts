@@ -2,15 +2,19 @@ import type { QueryClient } from "@tanstack/react-query";
 
 /** Which pages to refresh for each kind of change. */
 export const REFRESH: Record<string, string[]> = {
-  decisions: ["journal", "coulisses", "home"],
+  decisions: ["journal", "home"],
   actions_log: ["journal", "home"],
   profile_facts: ["home", "dossier", "dossiers", "journal"],
+  learned: ["home", "dossier", "dossiers", "journal", "relations"],
+  fact_categories: ["dossier", "journal"],
   relationship_events: ["relations", "dossier", "home", "journal"],
-  self_state_versions: ["memory", "home", "journal"],
-  self_state: ["memory", "home", "journal"],
+  self_state_versions: ["esprit", "home", "journal"],
+  self_state: ["esprit", "home", "journal"],
   skills: ["skills", "home", "journal"],
-  settings: ["home", "settings", "coulisses", "memory"],
-  feedback: ["memory"],
+  settings: ["home", "settings", "systeme", "esprit"],
+  feedback: ["esprit"],
+  site_requests: ["request"],
+  releases: ["systeme"],
 };
 
 /**

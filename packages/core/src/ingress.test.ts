@@ -70,7 +70,7 @@ describe("decideIngress", () => {
 
     it.each([
       ["mention", msg({ mentionsSelf: true })],
-      ["reply", msg({ repliesToSelf: true })],
+      ["reply that pings", msg({ repliesToSelf: true, mentionsSelf: true })],
     ])("replies to a %s from a human", (_label, m) => {
       expect(decideIngress(m, outside())).toEqual({ action: "reply", fromBot: false });
     });
@@ -79,6 +79,7 @@ describe("decideIngress", () => {
       ["strong name", msg({ namesSelf: true })],
       ["weak name", msg({ softNamesSelf: true })],
       ["direct follow-up", msg({ continuesExchange: true })],
+      ["reply without the ping", msg({ repliesToSelf: true })],
       ["ordinary message", msg()],
       ["bot mention", msg({ authorIsBot: true, authorIsKnownAiBot: true, mentionsSelf: true })],
     ])("stays out of it: %s", (_label, m) => {

@@ -1,7 +1,7 @@
 import type { SkillDraft } from "@archive-9/core";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
-import { members, skills } from "../schema.ts";
+import { members, skillRevisions, skills } from "../schema.ts";
 
 export interface SkillRow {
   id: string;
@@ -13,6 +13,8 @@ export interface SkillRow {
   authorName: string | null;
   usageCount: number;
   expiresAt: Date | null;
+  channelId: string | null;
+  memberId: string | null;
   createdAt: Date;
 }
 
@@ -32,6 +34,8 @@ export async function activeSkills(db: Database): Promise<SkillRow[]> {
       authorName: sql<string | null>`coalesce(${members.displayName}, ${members.username})`,
       usageCount: skills.usageCount,
       expiresAt: skills.expiresAt,
+      channelId: skills.channelId,
+      memberId: skills.memberId,
       createdAt: skills.createdAt,
     })
     .from(skills)
@@ -61,7 +65,7 @@ export async function createSkill(db: Database, draft: SkillDraft, authorId: str
     .where(and(isNull(skills.deletedAt), sql`${skills.expiresAt} <= now()`));
   const rows = await db
     .insert(skills)
-    .values({ ...draft, authorId, expiresAt })
+    .values({ ...draft, channelId: draft.channelId ?? null, memberId: draft.memberId ?? null, authorId, expiresAt })
     .onConflictDoNothing()
     .returning({ id: skills.id });
   return rows[0]?.id ?? null;
@@ -96,4 +100,58 @@ export async function recordSkillUse(db: Database, ids: string[]): Promise<void>
 /** Newest first, for `/skills`. */
 export async function listSkills(db: Database, limit = 50) {
   return (await activeSkills(db)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit);
+}
+
+/**
+ * Replaces a skill's content, keeping the old version in its history. Null when it no
+ * longer exists, false when another active skill already has the new name.
+ */
+export async function updateSkill(db: Database, id: string, draft: SkillDraft, expiresAt: Date | null, by: string): Promise<boolean | null> {
+  return db.transaction(async (tx) => {
+    const [old] = await tx.select().from(skills).where(and(eq(skills.id, id), active)).for("update");
+    if (!old) return null;
+    const [clash] = await tx
+      .select({ id: skills.id })
+      .from(skills)
+      .where(and(active, eq(sql`lower(${skills.name})`, draft.name.toLowerCase()), sql`${skills.id} <> ${id}`));
+    if (clash) return false;
+    await tx.insert(skillRevisions).values({
+      skillId: id,
+      name: old.name,
+      kind: old.kind,
+      triggers: old.triggers,
+      rule: old.rule,
+      channelId: old.channelId,
+      memberId: old.memberId,
+      editedBy: by,
+    });
+    await tx
+      .update(skills)
+      .set({ ...draft, channelId: draft.channelId ?? null, memberId: draft.memberId ?? null, expiresAt, updatedAt: sql`now()` })
+      .where(eq(skills.id, id));
+    return true;
+  });
+}
+
+export async function getSkill(db: Database, id: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return undefined;
+  const [row] = await db.select().from(skills).where(and(eq(skills.id, id), active));
+  return row;
+}
+
+/** Earlier versions of a skill, newest first. */
+export async function skillHistory(db: Database, id: string) {
+  return db
+    .select({
+      name: skillRevisions.name,
+      kind: skillRevisions.kind,
+      triggers: skillRevisions.triggers,
+      rule: skillRevisions.rule,
+      editedBy: sql<string | null>`coalesce(${members.displayName}, ${members.username})`,
+      createdAt: skillRevisions.createdAt,
+    })
+    .from(skillRevisions)
+    .leftJoin(members, eq(members.id, skillRevisions.editedBy))
+    .where(eq(skillRevisions.skillId, id))
+    .orderBy(sql`${skillRevisions.createdAt} desc`);
 }

@@ -1,10 +1,11 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { actionsLog, members, profileFacts, profileSummaries, relationshipEvents, relationships, selfStateVersions, siteAdmins, skills } from "../schema.ts";
 
 export interface SiteViewer {
   id: string;
   name: string;
+  avatar: string | null;
   inGuild: boolean;
   optedOut: boolean;
   isAdmin: boolean;
@@ -16,6 +17,7 @@ export async function siteViewer(db: Database, discordId: string): Promise<SiteV
     .select({
       id: members.id,
       name: sql<string>`coalesce(${members.displayName}, ${members.username})`,
+      avatar: members.avatar,
       inGuild: members.inGuild,
       optedOutAt: members.optedOutAt,
       admin: siteAdmins.memberId,
@@ -24,7 +26,7 @@ export async function siteViewer(db: Database, discordId: string): Promise<SiteV
     .leftJoin(siteAdmins, eq(siteAdmins.memberId, members.id))
     .where(and(eq(members.id, discordId), eq(members.isServer, false)));
   if (!row) return undefined;
-  return { id: row.id, name: row.name, inGuild: row.inGuild, optedOut: row.optedOutAt !== null, isAdmin: row.admin !== null };
+  return { id: row.id, name: row.name, avatar: row.avatar, inGuild: row.inGuild, optedOut: row.optedOutAt !== null, isAdmin: row.admin !== null };
 }
 
 export type FeedKind = "learned" | "action" | "skill" | "relation" | "memory";
@@ -62,7 +64,7 @@ function actionText(tool: string, params: Record<string, unknown>): string {
 }
 
 /** Everything the home page shows, in one call. */
-export async function homeOverview(db: Database, limits = { members: 6, skills: 3, feed: 12 }) {
+export async function homeOverview(db: Database, limits = { members: 9, skills: 3, feed: 7 }) {
   const [counts] = await db.execute<{ messages: number; facts: number; dossiers: number; skills: number }>(sql`
     select
       (select count(*)::int from messages) as messages,
@@ -76,8 +78,10 @@ export async function homeOverview(db: Database, limits = { members: 6, skills: 
       id: members.id,
       name: memberName,
       isBot: members.isBot,
+      avatar: members.avatar,
       tagline: profileSummaries.tagline,
       affinity: relationships.affinity,
+      trust: relationships.trust,
       messages: sql<number>`(select count(*)::int from messages where author_id = ${members.id})`,
       facts: sql<number>`(select count(*)::int from profile_facts f where f.member_id = ${members.id} and f.superseded_by is null and f.deleted_at is null)`,
     })
@@ -131,16 +135,16 @@ export async function recentEvents(db: Database, n: number): Promise<FeedEvent[]
       .orderBy(desc(skills.createdAt))
       .limit(n),
     db
-      .select({ at: relationshipEvents.createdAt, name: memberName, delta: relationshipEvents.affinityDelta, reason: relationshipEvents.reason })
+      .select({ at: relationshipEvents.createdAt, name: memberName, delta: relationshipEvents.affinityDelta, trust: relationshipEvents.trustDelta, reason: relationshipEvents.reason })
       .from(relationshipEvents)
       .innerJoin(members, eq(members.id, relationshipEvents.memberId))
       .where(visible)
       .orderBy(desc(relationshipEvents.createdAt))
       .limit(n),
     db
-      .select({ at: selfStateVersions.createdAt, state: selfStateVersions.state })
+      .select({ at: selfStateVersions.createdAt, state: selfStateVersions.state, source: selfStateVersions.source })
       .from(selfStateVersions)
-      .where(eq(selfStateVersions.source, "reflection"))
+      .where(inArray(selfStateVersions.source, ["reflection", "midday"]))
       .orderBy(desc(selfStateVersions.createdAt))
       .limit(3),
   ]);
@@ -152,9 +156,9 @@ export async function recentEvents(db: Database, n: number): Promise<FeedEvent[]
     ...relations.map((r) => ({
       at: r.at,
       kind: "relation" as const,
-      text: `${r.name} · ${r.delta > 0 ? `+${String(r.delta)}` : String(r.delta)} · ${r.reason}`,
+      text: `${r.name} · ${[r.delta ? `affinité ${r.delta > 0 ? "+" : "−"}${String(Math.abs(r.delta))}` : "", r.trust ? `confiance ${r.trust > 0 ? "+" : "−"}${String(Math.abs(r.trust))}` : ""].filter(Boolean).join(", ")} · ${r.reason}`,
     })),
-    ...memories.map((m) => ({ at: m.at, kind: "memory" as const, text: `J'ai repensé à ma journée. Humeur : ${m.state.mood}.` })),
+    ...memories.map((m) => ({ at: m.at, kind: "memory" as const, text: `${m.source === "midday" ? "Pause de midi" : "Réflexion du soir"} terminée. Humeur : ${m.state.mood}.` })),
   ]
     .sort((a, b) => b.at.getTime() - a.at.getTime())
     .slice(0, n);

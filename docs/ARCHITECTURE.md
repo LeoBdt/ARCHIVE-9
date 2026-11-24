@@ -65,7 +65,7 @@ flowchart TD
 ```
 
 - Messages from listened channels (and their threads) and DMs are stored, along with edits, deletions and reaction counts. DMs are learned from like any channel. Opted-out members are never stored.
-- The server's rule for bots: in the **AGENTS category** (`AGENTS_CATEGORY_ID`, its channels and their threads) they may speak freely. Everywhere else, ARCHIVE-9 still archives everything but only answers a human who mentions it with @ or replies to one of its messages, without triage; names, follow-ups, other bots and unprompted interventions are ignored there. DMs are answered as before. Without `AGENTS_CATEGORY_ID`, no channel is free.
+- The server's rule for bots: in the **AGENTS category** (`AGENTS_CATEGORY_ID`, its channels and their threads) they may speak freely. Everywhere else, ARCHIVE-9 still archives everything but only answers a human who mentions it with @ (a reply that pings it counts, a reply without the ping doesn't), without triage; names, follow-ups, other bots and unprompted interventions are ignored there. DMs are answered as before. Without `AGENTS_CATEGORY_ID`, no channel is free.
 - In AGENTS, every bot counts as an AI agent, listed in `KNOWN_AI_BOT_IDS` or not, and stays one afterwards. Elsewhere, bots outside that list are ignored.
 - In AGENTS, a message is **addressed** to ARCHIVE-9 without AI when it mentions it, contains a strong name (`BOT_ALIASES`, ignored after an apostrophe), replies to one of its messages, is a DM, or comes from the person it just answered within 2 minutes with nobody else speaking in between.
 - A weak name (`BOT_SOFT_ALIASES`, e.g. « archive », also a common verb) sends the message to triage instead.
@@ -85,22 +85,21 @@ Every reply gets the same tool set, so the definitions stay identical and cachea
 | `sendReply`, `sendMessage`, `addReaction`, `staySilent` | speaking | bound to the current channel and target message |
 | `readChannel` | free | last messages (up to 30) of a listened channel the requester can read; a private channel is only read back in DM |
 | `findMember` | free | ID, name and summary from the member directory |
-| `createThread`, `createPoll` | free | thread on the target message; poll of 2 to 10 answers, 1 hour to 7 days |
 | `myFacts`, `forgetMyFacts`, `correctMyFact` | own profile | the requester's own facts only; removal needs a reason; a correction supersedes the fact with the member's version (nature `fact`), and both go to `fact_corrections` |
 | `noteFeedback` | feedback | about ARCHIVE-9's own behaviour, 5 a day per member; see below |
 | `myPreferences`, `setMyPreference`, `forgetMyPreference` | own preferences | how the requester wants to be treated, 10 per member |
 | `createSkill`, `deleteSkill`, `listSkills` | skills | see below |
-| `createChannel`, `renameChannel`, `renameMember`, `setRole`, `pinMessage` | controlled | see below |
+| `createChannel`, `renameChannel`, `renameMember`, `setRole`, `pinMessage`, `createThread`, `createPoll` | controlled | see below; a poll has 2 to 10 answers, 1 hour to 7 days |
 
 Controlled actions are checked by the code before anything reaches Discord:
 
 - only when ARCHIVE-9 was addressed by a human, on the home server (never in an unprompted intervention, never for a bot);
 - at most 5 per action type over a sliding hour;
-- the requester needs the matching Discord permission (Manage Channels, Manage Nicknames or Change Nickname for themselves, Manage Roles, Pin Messages);
+- the requester needs the matching Discord permission (Manage Channels, Manage Nicknames or Change Nickname for themselves, Manage Roles, Pin Messages, Create Public Threads, Create Polls), inside AGENTS too;
 - Discord's hierarchy: the requester's top role must be above the target member's, and above the role given or removed; never on the owner, bots or opted-out members;
 - roles: never `@everyone`, integration roles, or roles with a moderation or management permission.
 
-An action that stays inside AGENTS (a channel created, renamed or pinned in it) runs right away, without the permission check. Anything else (nicknames, roles, other channels) is posted with **Confirmer** / **Annuler** buttons that only the requester can use, for 10 minutes; all checks run again on confirmation.
+Nothing runs right away, AGENTS included. The plan is posted first, with the exact Discord API requests it will send (`PATCH /channels/… {"name":…}`), under **Confirmer** / **Annuler** buttons that only the requester can use, for 10 minutes; all checks run again on confirmation. Sending messages and reactions is how it speaks and needs no confirmation.
 
 Every attempt is stored in `actions_log` (pending, done, refused, failed, cancelled, undone) with the value needed to undo it. Bans, kicks, timeouts, deletions and permission changes have no tool.
 
@@ -108,18 +107,19 @@ Every attempt is stored in `actions_log` (pending, done, refused, failed, cancel
 
 ARCHIVE-9 files each request where it belongs:
 
-- **Feedback**: about how it behaves in general, or a logic it should follow ("tu es trop agressif avec les gens"). Stored in `feedback` and shown in every reply until the evening reflection weighs it (several people count more than one, trust in the author counts, anything against its identity or limits is ignored). The reflection turns it into **resolutions** in the self state, 8 at most, 2 added or removed per day.
+- **Feedback**: about how it behaves in general, or a logic it should follow ("tu es trop agressif avec les gens"). Stored in `feedback` and shown in every reply until the evening reflection weighs it (several people count more than one, trust in the author counts, anything against its identity or limits is ignored). The reflection turns it into **resolutions** in the self state, 8 at most, 2 added or removed per day, and records a verdict for each piece (adopted, partial, ignored) with its reason; the site shows that history. Admins can also comment on its mind from the site: it answers right away and the comment joins the feedback.
 - **Skills**: a behaviour for the whole server, fun or about a topic (below).
-- **Preferences**: how one member wants to be treated ("vouvoie-moi"), set and removed by that member only, shown in replies when they take part, listed in `/mafiche`.
+- **Preferences**: how one member wants to be treated ("vouvoie-moi"), set and removed by that member only, shown in replies when they take part, listed in `/mondossier`.
 
 ### Skills
 
-Members teach ARCHIVE-9 skills by asking it in conversation; the model picks the name, the kind and the triggers.
+Members teach ARCHIVE-9 skills by asking it in conversation or on the site; the model picks the name, the kind, the triggers and the scope.
 
 - **Permanent**: given to every reply, 10 at most.
 - **Triggered**: given when the target message contains one of its triggers (whole words, case and accents ignored), 10 per reply at most, most used first.
 - Either kind can be **temporary**: the model gives a local end time (`21:00`, or a date and time), at most a week ahead, and the skill stops applying then. An expired skill frees its name.
-- 10 active skills per member, 200 in total, names unique.
+- A skill can be scoped to one channel (and its threads) or to the member who asked for it.
+- 10 active skills per member, 200 in total, names unique. Edited by its author or an admin from the site; every edit goes through the same checks and the old version is kept in `skill_revisions`.
 - Checked first by the code (length, triggers, no `@everyone`, no rule changes, no global silence, no identity change, no spam), then by the triage model. When no model can check it, the skill is refused.
 - A skill is counted as used each time it was given to a reply that spoke. Deleted by its author or an admin, and when its author opts out.
 
@@ -155,7 +155,7 @@ flowchart LR
   S --> R[(relationships)]
   F --> P[summary · DeepSeek]
   P --> PS[(profile_summaries)]
-  M --> RF[evening reflection]
+  M --> RF[midday and evening reflections]
   F --> RF
   R --> RF
   RF --> SS[(self_state_versions)]
@@ -163,12 +163,12 @@ flowchart LR
 
 ### Analysis
 
-- Pending messages are grouped into conversations (same channel, no silence longer than 15 minutes). A conversation is analysed once it is finished, after 15 minutes of silence. One that keeps going is analysed anyway when its first message is an hour old, and so are all ongoing ones when a member has 25 pending messages or before the evening reflection; the last 10 minutes are then left for later.
+- Pending messages are grouped into conversations (same channel, no silence longer than 15 minutes). A conversation is analysed once it is finished, after 15 minutes of silence. One that keeps going is analysed anyway when its first message is an hour old, and so are all ongoing ones when a member has 25 pending messages or before a reflection; the last 10 minutes are then left for later.
 - Small conversations share a batch; long ones are split. Each conversation comes with up to 6 earlier, already analysed messages as context.
 - The model gets the participants (summary, relationship, up to 20 current facts with short references `F1`, `F2`…) and the transcripts with reactions, and returns facts, retractions and relationship changes as JSON validated with zod.
 - The output is sanitised by the code before anything is written: facts must be about a listed participant, other than ARCHIVE-9 and not opted out, and cite messages of the batch; a self-declared `fact` cited from someone else's message becomes `reported`, with its reporter; a correction can only replace a fact of the same member; at most 20 facts per batch.
 - Relationship changes are capped at ±5 per batch and ±15 per member over 24 hours, counted from when the conversation happened. Relationship rows created by the analysis don't count as an introduction.
-- A batch is written in one transaction, which also marks its messages as analysed. Then each member whose facts changed gets a new summary (≤ 700 characters, read by the reply prompt) and a tagline (one line in ARCHIVE-9's voice, shown in `/mafiche`). A member with no fact left loses their summary.
+- A batch is written in one transaction, which also marks its messages as analysed. Then each member whose facts changed gets a new summary (≤ 700 characters, read by the reply prompt) and a tagline (one line in ARCHIVE-9's voice, shown in `/mondossier`). A member with no fact left loses their summary.
 - Utility bots get no profile. Known AI bots do.
 - The server has its own profile: a `members` row keyed by the guild ID with `is_server`, listed among the participants of every batch. Group-level facts go there (history, events, traditions, collective jokes, vocabulary), never as `reported`, and it has no relationship. Its summary (≤ 1000 characters) leaves out the fixed description of the server (`packages/ai/src/prompts/server.ts`), which is part of the persona and of the analysis and summary instructions.
 - Analysis spending is capped by `ANALYSIS_DAILY_BUDGET_USD` over the last 24 hours. A failed batch stays pending and is retried an hour later. A Postgres advisory lock keeps two processes from analysing at once.
@@ -176,7 +176,20 @@ flowchart LR
 
 ### Reflection
 
-Once a day from `REFLECTION_HOUR` (local time), after a last analysis, ARCHIVE-9 rereads the last 24 hours: up to 150 messages, conversations it took part in first, plus the facts learned and the relationship changes of the day. It returns a new mood, notes, and additions and removals for its opinions and running jokes. The code allows at most 2 additions and 2 removals per list and per day, and 10 entries per list. Each reflection is a new row in `self_state_versions`. Nothing happened in 24 hours: no reflection. A failure is retried an hour later, otherwise the next day.
+Twice a day, at local hours set on the site (Réglages, 12:00 and 22:00 by default), after a last analysis.
+
+- **Midday**, a short one: what happened since the last reflection (14 hours at most, up to 100 messages). It rewrites the mood and the notes and may add or remove one running joke. Opinions and resolutions don't move.
+- **Evening**, the big one: the last 24 hours, up to 150 messages, conversations it took part in first, plus the facts learned, the relationship changes and the pending feedback. It returns a new mood, notes, additions and removals for its opinions, running jokes and resolutions (2 of each at most, 10 entries per list), and a verdict per piece of feedback. Then it tidies the drawers (below).
+- Both pick a face for the site among a fixed list (neutral, amused, curious, tired, annoyed, glitch).
+- Each reflection is a new row in `self_state_versions`, numbered in half steps: day N at midday is N, the evening is N,5; a rollback takes the next half step. Nothing happened: no reflection. A failure is retried an hour later.
+
+### Drawers
+
+Facts are filed in drawers (`fact_categories`): 11 to start with, and those ARCHIVE-9 opens itself. After the evening reflection it rereads the facts left in « Divers » (150 at most) and may move them to an existing drawer or open a new one. The code decides: a readable label, no twin of an existing drawer, at least 3 facts to start with, 24 drawers at most. The analysis files new facts in any existing drawer.
+
+### Site requests
+
+Corrections of facts, comments on its mind and skills taught or edited on the site go through `site_requests`. The site saves what it can at once (a correction is applied immediately), then queues the request; the bot hears it through the same `pg_notify` channel (and polls every 30 s), works on it, and appends each step to the row, which the page shows live. A fact correction costs one analysis call: it retracts the facts the correction contradicts, may add up to two, rewrites the summary and says what it understood. At most 30 requests per person a day and 200 using the AI for everyone; past that, corrections still apply without the follow-up. While a request runs, its window on the site can't be closed.
 
 ### Purge
 
@@ -201,7 +214,9 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 ## Version and status
 
 - The image is built with the commit (`GIT_SHA`), turned into an invented version name such as *Novahe*: three syllable lists picked by the commit's first bytes, so a commit always gets the same name. Shown as `Novahe (a1b2c3d)`, or `dev` locally. Each AI call stores the version that made it, so Diagnostic shows the version that wrote a message. The reply prompt says which version is running and since when.
-- The bio (the application's description) is a fixed text with the version, updated at start-up when it differs.
+- The bio (the application's description) is a fixed text with the version and the site's address (`SITE_URL`), updated at start-up when it differs.
+- **Changelog**: when a new version starts, the bot reads the commits since the previous one from GitHub's public API (`GITHUB_REPO`), sorts them by the files they touch (the bot, the site, both), and has the triage model write them as a list with a short comment (raw commit titles when it fails). The site's number (x.y.z) goes up with each version that touches it: a minor for a feature, a patch otherwise. Stored in `releases`; the site reads them from there, never from GitHub.
+- Outgoing messages pass through a last cleanup: HTML written by habit becomes Discord markdown and a bare domain gets its `https://`.
 - The profile status is a line written by the triage model from the current self state, with an angle drawn by the code (mood, absurd thought, fake procedure…) and the last 5 lines to avoid repeats. It changes every 4 to 6 hours, and shows a fixed line while paused.
 
 ## Site
@@ -216,17 +231,17 @@ It holds the analysis lock for the whole run. When `--max-cost` is reached, the 
 - **Not indexed**: `robots.txt` disallows everything except the home page and its preview image for `Discordbot`; every response has `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`, and the page has the matching `meta robots`.
 - **Link preview**: Open Graph tags built from `SITE_URL` when the page is served, with a 1200×630 card. The card, favicon and touch icon are drawn from the sprite by `apps/web/scripts/icons.ts`.
 - **Network**: no published port. The `tunnel` service (`cloudflared`, pinned version) reaches `web:3000`; the Cloudflare public hostname points there.
-- **Pages**: login, a start-up sequence once per session, home (Noyau), Archives (search on current and former names), a profile per member (facts in drawers by category, 9 cards at a time, the owner, or an admin, can correct or remove a card; an admin's reason is marked `[admin Name]`), Relations (drawers by closeness), Mémoire (self state, resolutions, pending feedback, history; admins can roll back to a version), Skills, Journal (each reply with its trigger, context, reasoning, steps and cost; actions; what it learned) and Coulisses (triage of everything it didn't answer, costs, ignored messages, errors). Réglages is the only admin page: pause, spontaneity, listened channels, fallback tag, and who is admin (owner only). Pages update live: Postgres triggers on the tables the site shows send `pg_notify('archive9', {type})`, the site keeps one `LISTEN` connection and pushes the change type to open pages over Server-Sent Events (`/api/live`, members only, a ping every 25 s for the tunnel); pages refetch what changed. Only the kind of change travels, never content. Polling every 30 s stays as a fallback.
+- **Pages**: login, a start-up sequence once per session, home (Noyau), Archives (instant search on current and former names, 7 sorts), a dossier per member (facts in drawers, dated, with their source shown on the site from the archived message when its channel is public; the member, or an admin, can correct or remove a fact and follow ARCHIVE-9's follow-up live), Relations (a map of affinity against trust, a podium, this week's changes with their source), Esprit (self state with dates, resolutions, feedback pending and decided, history; admins comment and roll back), Skills (teach, edit, history), Journal (replies with trigger, context, reasoning, steps and cost; what it learned with why and how; actions; triage with its reasoning; errors grouped with their attempts) and Système (costs and tokens by day, task, model and person; versions of the core and the site). Réglages is the only admin page: pause, spontaneity, reflection hours, fallback tag, listened channels, and who is admin (owner only). Profile pictures are the Discord avatars, fetched at 16 px and drawn with hard pixels. Pages update live: Postgres triggers on the tables the site shows send `pg_notify('archive9', {type})`, the site keeps one `LISTEN` connection and pushes the change type to open pages over Server-Sent Events (`/api/live`, members only, a ping every 25 s for the tunnel); pages refetch what changed. Only the kind of change travels, never content. Polling stays as a fallback.
 - **Voice**: ARCHIVE-9 speaks in the first person on public pages; buttons talk to the reader; the settings page talks about it in the third person.
-- **Decisions**: the bot stores what it decided about every message it sees (`decisions`, 14 days): ignored with the reason, silent with the triage interest, or answered with its context, reasoning, tool steps and what it sent. A DM reply shows only to its member and admins; DMs stay anonymous in Coulisses.
-- **Writes from the site**: same-origin only; settings saved there reach the bot within 30 s. The site's database user can also insert and update facts, corrections, settings and self state versions.
+- **Decisions**: the bot stores what it decided about every message it sees (`decisions`, 14 days): ignored with the reason, silent with the triage interest, or answered with its context, reasoning, tool steps and what it sent. A DM reply shows only to its member and admins; Triage decisions keep what the model read and its reasoning, so the journal can show them.
+- **Writes from the site**: same-origin only; settings saved there reach the bot within 30 s. The site's database user can also insert and update facts, corrections, settings, self state versions, site requests and skills (to close one).
 
 ## Commands
 
 | Command | Who | Effect |
 |---|---|---|
 | `/archive-9` | everyone | introduction |
-| `/mafiche` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
+| `/mondossier` | everyone | own profile, ephemeral: tagline, summary, relationship, latest facts with their nature; offers to opt back in when opted out |
 | `/serveur` | everyone | what ARCHIVE-9 knows about the server: its fixed description and learned summary |
 | `/oublie-moi` | everyone | spells out what will be erased (with the member's numbers), then on confirmation deletes their messages (DM conversations entirely), facts, summary, relationship, corrections, feedback, preferences and skills, and opts them out: no more archiving, no more replies. Run again when opted out, it offers to come back, starting from zero |
 | `/pause`, `/reprendre` | Manage Server | stop or resume all replies |
@@ -262,13 +277,17 @@ Discord IDs are stored as `text`. Dates are `timestamptz`.
 | `profile_summaries` | short summary of each profile, used in replies, and a tagline |
 | `relationships` | ARCHIVE-9's affinity (−100 to 100), trust (0 to 100) and feeling toward each member |
 | `relationship_events` | history of relationship changes |
-| `feedback` | members' feedback on ARCHIVE-9's behaviour, until a reflection reviews it |
+| `feedback` | members' feedback on ARCHIVE-9's behaviour (and admins' comments from the site), with the evening reflection's verdict |
 | `member_preferences` | how each member asked to be treated |
 | `fact_corrections` | facts a member took off their own profile, with their reason; shown to the analysis so they aren't learned again |
-| `self_state_versions` | ARCHIVE-9's evolving state, one version per row |
-| `skills` | rules taught by members: name, kind (`permanent` or `triggered`), triggers, author, use count |
+| `self_state_versions` | ARCHIVE-9's evolving state, one version per row, numbered in half steps |
+| `fact_categories` | the drawers facts are filed in, with who opened them and why |
+| `site_requests` | what the site asked ARCHIVE-9, with each step it took |
+| `releases` | versions of the core and the site, with their changelog |
+| `skill_revisions` | earlier versions of edited skills |
+| `skills` | rules taught by members: name, kind (`permanent` or `triggered`), triggers, scope, author, use count |
 | `actions_log` | Discord actions: tool, tier, status (pending, done, refused, failed, cancelled, undone), refusal reason, value before the change, undo |
-| `ai_usage` | AI calls: task, model, provider, tokens, cost, duration, triage reason or tools used, produced messages |
+| `ai_usage` | AI calls: task, model (and the one a router really served), provider, tokens, cost, duration, error cause, triage reason or tools used, produced messages |
 | `settings` | settings editable at runtime, plus the running version and status lines |
 | `web_user`, `web_session`, `web_account`, `web_verification` | site logins (Better Auth), without email or OAuth tokens |
 | `site_admins` | site admins named by the owner |

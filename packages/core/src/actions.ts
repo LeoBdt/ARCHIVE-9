@@ -1,4 +1,4 @@
-export const CONTROLLED_ACTIONS = ["createChannel", "renameChannel", "renameMember", "setRole", "pinMessage"] as const;
+export const CONTROLLED_ACTIONS = ["createChannel", "renameChannel", "renameMember", "setRole", "pinMessage", "createThread", "createPoll"] as const;
 export type ControlledAction = (typeof CONTROLLED_ACTIONS)[number];
 
 /** Per action type, over a sliding hour. */

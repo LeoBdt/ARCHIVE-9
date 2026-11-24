@@ -62,7 +62,10 @@ const schema = z.object({
   REPLY_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(1),
   /** Password of the site's read-mostly Postgres user, created by the bot. Unset: no site. */
   WEB_DB_PASSWORD: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
-  REFLECTION_HOUR: z.coerce.number().int().min(0).max(23).default(23),
+  /** The site's public address: in the bio, and given to the model to link it in full. */
+  SITE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
+  /** Public repository the changelog is read from. */
+  GITHUB_REPO: z.string().regex(/^[\w.-]+\/[\w.-]+$/).default("LeoBdt/ARCHIVE-9"),
   MESSAGE_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 });
 

@@ -8,20 +8,38 @@ export const PREFERENCES_PER_MEMBER = 10;
 const name = sql<string>`coalesce(${members.displayName}, ${members.username})`;
 
 /** Stores a member's feedback; false once they gave too much of it today. */
-export async function addFeedback(db: Database, authorId: string, content: string, sourceMessageId: string | null): Promise<boolean> {
+export async function addFeedback(
+  db: Database,
+  authorId: string,
+  content: string,
+  sourceMessageId: string | null,
+  extra: { source?: "discord" | "site"; about?: string | null } = {},
+): Promise<boolean> {
   const [row] = await db
     .select({ n: count() })
     .from(feedback)
     .where(and(eq(feedback.authorId, authorId), gte(feedback.createdAt, sql`now() - interval '1 day'`)));
   if ((row?.n ?? 0) >= FEEDBACK_PER_DAY) return false;
-  await db.insert(feedback).values({ authorId, content, sourceMessageId });
+  await db.insert(feedback).values({ authorId, content, sourceMessageId, source: extra.source ?? "discord", about: extra.about ?? null });
   return true;
+}
+
+export type FeedbackVerdict = "adopted" | "partial" | "ignored";
+
+/** What the evening reflection decided about each piece of feedback it read. */
+export async function markFeedbackVerdicts(db: Database, verdicts: { id: string; verdict: FeedbackVerdict | null; reason: string | null }[], label: number): Promise<void> {
+  for (const v of verdicts) {
+    await db
+      .update(feedback)
+      .set({ reviewedAt: sql`now()`, verdict: v.verdict, verdictReason: v.reason, reviewedLabel: label })
+      .where(eq(feedback.id, v.id));
+  }
 }
 
 /** Feedback no reflection has read yet, oldest first, with who gave it and how much ARCHIVE-9 trusts them. */
 export async function pendingFeedback(db: Database, limit = 30) {
   return db
-    .select({ id: feedback.id, content: feedback.content, authorName: name, trust: relationships.trust, createdAt: feedback.createdAt })
+    .select({ id: feedback.id, content: feedback.content, about: feedback.about, authorName: name, trust: relationships.trust, createdAt: feedback.createdAt })
     .from(feedback)
     .innerJoin(members, eq(members.id, feedback.authorId))
     .leftJoin(relationships, eq(relationships.memberId, feedback.authorId))

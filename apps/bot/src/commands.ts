@@ -44,7 +44,7 @@ const ephemeral = MessageFlags.Ephemeral;
 
 export const COMMANDS = [
   new SlashCommandBuilder().setName("archive-9").setDescription("ARCHIVE-9 se présente"),
-  new SlashCommandBuilder().setName("mafiche").setDescription("Ce qu'ARCHIVE-9 sait sur toi"),
+  new SlashCommandBuilder().setName("mondossier").setDescription("Ce qu'ARCHIVE-9 sait sur toi"),
   new SlashCommandBuilder().setName("serveur").setDescription("Ce qu'ARCHIVE-9 sait du serveur"),
   new SlashCommandBuilder().setName("oublie-moi").setDescription("Effacer toutes tes données et ne plus être archivé, ou revenir"),
   new SlashCommandBuilder().setName("pause").setDescription("Couper toutes les réponses d'ARCHIVE-9").setDefaultMemberPermissions(ADMIN),
@@ -129,7 +129,7 @@ function factLine(fact: CurrentFact): string {
   return `- ${fact.content}${note}`;
 }
 
-/** The /mafiche answer, kept under Discord's 2000 characters. */
+/** The /mondossier answer, kept under Discord's 2000 characters. */
 export function formatProfile(
   name: string,
   id: string,
@@ -169,12 +169,12 @@ export function forgetWarning(counts: { messages: number; facts: number; skills:
   const n = (value: number, one: string, many: string) => `${String(value)} ${value === 1 ? one : many}`;
   return [
     "**Avant de tout effacer, lis bien.**",
-    `- J'efface tes **${n(counts.messages, "message archivé", "messages archivés")}**, MP compris, et ta fiche (**${n(counts.facts, "fragment", "fragments")}**).`,
+    `- J'efface tes **${n(counts.messages, "message archivé", "messages archivés")}**, MP compris, et ton dossier (**${n(counts.facts, "fragment", "fragments")}**).`,
     "- J'oublie notre relation : je ne saurai plus qui tu es.",
     `- J'efface aussi tes préférences (${String(counts.preferences)}), tes retours et tes skills (${String(counts.skills)}).`,
     "- Ensuite, je **ne te réponds plus** et je ne retiens plus rien de ce que tu écris.",
     "- **C'est irréversible.** Tu pourras revenir quand tu veux avec `/oublie-moi`, mais je repartirai **de zéro** avec toi.",
-    "-# Les messages des autres qui parlent de toi restent archivés, mais plus rien n'est relié à ta fiche.",
+    "-# Les messages des autres qui parlent de toi restent archivés, mais plus rien n'est relié à ton dossier.",
   ].join("\n");
 }
 
@@ -411,7 +411,7 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
     case "archive-9":
       await i.reply(INTRODUCTION);
       break;
-    case "mafiche":
+    case "mondossier":
       await myProfile(i, deps);
       break;
     case "serveur":

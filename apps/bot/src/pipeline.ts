@@ -14,6 +14,7 @@ import {
   AmbientBudget,
   BotLoopGuard,
   KeyedDebouncer,
+  cleanOutgoing,
   createMemberFinder,
   createNameMatcher,
   decideIngress,
@@ -38,6 +39,7 @@ import {
   recordInteraction,
   recordSkillUse,
   type DecisionInput,
+  type DecisionDetails,
   type AiUsageInput,
   type Database,
   type DirectoryMember,
@@ -67,7 +69,11 @@ export interface PipelineDeps {
   /** « Novahe (a1b2c3d) », stored with every AI call. */
   version: string;
   startedAt: Date;
+  /** The site's public address, given to the model so it links it in full. */
+  siteUrl: string | null;
 }
+
+type TriageDetails = NonNullable<DecisionDetails["triage"]>;
 
 const TRIAGE_WINDOW = 10;
 const REPLY_WINDOW = 20;
@@ -167,11 +173,19 @@ export function describeRun(
         continue;
       }
       const output = step.toolResults?.find((r) => r.toolName === call.toolName)?.output;
+      if (call.toolName === "addReaction" && typeof input?.emoji === "string") {
+        steps.push({ tool: call.toolName, summary: input.emoji });
+        continue;
+      }
       steps.push({ tool: call.toolName, summary: output === undefined ? short(input) : short(output) });
     }
   }
   const reasoning = result.reasoningText?.trim();
-  return { context, reasoning: reasoning ? reasoning.slice(0, 4000) : null, steps, sent: sent.length ? sent.join("\n") : null };
+  const people = ctx.participants
+    .filter((p) => p.id === ctx.authorId || p.affinity !== null)
+    .slice(0, 6)
+    .map((p) => ({ id: p.id, name: p.name, affinity: p.affinity, trust: p.trust, feeling: p.feeling }));
+  return { context, reasoning: reasoning ? reasoning.slice(0, 4000) : null, steps, sent: sent.length ? sent.join("\n") : null, people, skills: ctx.skills };
 }
 
 export class Pipeline {
@@ -308,9 +322,22 @@ export class Pipeline {
       await this.saveUsage(runId, outcome.usage, { detail });
       log.debug({ channelId, decision }, "triage");
       if (!decision) return;
+      const used = outcome.usage.at(-1);
+      const triageInfo: TriageDetails = {
+        transcript: formatTranscript(history.slice(-8), { targetId: target.id, maxContentLength: 200, timeZone: this.deps.timezone, names: (await this.directory()).names }),
+        reasoning: outcome.reasoning,
+        addressed: decision.addressed,
+        interest: decision.interest,
+        reason: decision.reason,
+        model: used ? (used.servedModel ?? used.model) : null,
+        fallbackReason: used?.fallbackReason ?? null,
+        durationMs: used?.durationMs ?? null,
+        inputTokens: used?.inputTokens ?? null,
+        outputTokens: used?.outputTokens ?? null,
+      };
 
       if (decision.addressed) {
-        await this.respond(target, { addressed: true, runId, triageReason: decision.reason, usage: [], trigger: `le tri : ${decision.reason}` });
+        await this.respond(target, { addressed: true, runId, triageReason: decision.reason, usage: [], trigger: `le tri : ${decision.reason}`, triage: triageInfo });
         return;
       }
       const level = this.deps.settings.value.spontaneity;
@@ -327,6 +354,7 @@ export class Pipeline {
           interest: decision.interest,
           inAgents: isInAgents(target.channel, this.deps.agentsCategoryId),
           content: target.content,
+          details: { triage: triageInfo },
         });
         return;
       }
@@ -337,6 +365,7 @@ export class Pipeline {
         usage: [],
         trigger: `intervention spontanée, intérêt ${String(decision.interest)}/10 : ${decision.reason}`,
         interest: decision.interest,
+        triage: triageInfo,
       });
       if (spoke) this.ambientBudget.record(channelId);
     } catch (error) {
@@ -372,7 +401,7 @@ export class Pipeline {
 
   private async respond(
     target: Message,
-    run: { addressed: boolean; runId: string; triageReason: string | null; usage: UsageRecord[]; trigger?: string; interest?: number },
+    run: { addressed: boolean; runId: string; triageReason: string | null; usage: UsageRecord[]; trigger?: string; interest?: number; triage?: TriageDetails },
   ): Promise<boolean> {
     const channel = channelOf(target);
     if (!channel || this.busyChannels.has(target.channelId)) return false;
@@ -397,6 +426,7 @@ export class Pipeline {
         interest: run.interest ?? null,
         reason: run.trigger ?? null,
         content: target.content,
+        details: run.triage ? { triage: run.triage } : null,
       });
       const spent = await aiCostSince(db, ["reply"], new Date(Date.now() - DAY_MS));
       const overBudget = spent >= this.deps.replyDailyBudgetUsd;
@@ -419,7 +449,7 @@ export class Pipeline {
       const participants = await this.participants(history, target, directory);
       const elsewhere = await this.elsewhere(target, history);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
-      const skills = selectSkills(await activeSkills(db), target.content);
+      const skills = selectSkills(await activeSkills(db), target.content, { channelId: target.channelId, parentId: parentIdOf(target), authorId: target.author.id });
       const outcome = await reply(
         ai,
         {
@@ -446,6 +476,7 @@ export class Pipeline {
             until: k.expiresAt?.toLocaleTimeString("fr-FR", { timeZone: this.deps.timezone, hour: "2-digit", minute: "2-digit" }) ?? null,
           })),
           version: { label: this.deps.version, since: this.deps.startedAt },
+          siteUrl: this.deps.siteUrl,
         },
         (ref, isFallback) => ({
           ...createSendTools(channel, target, send, isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined),
@@ -485,7 +516,7 @@ export class Pipeline {
       const strayText = outcome.result.text.trim();
       if (run.addressed && strayText && send.sentMessageIds.length === 0 && !send.silenced) {
         const tag = outcome.isFallback && settings.value.showFallbackTag ? `\n-# noyau-${shortModelName(outcome.ref)}` : "";
-        const sent = await target.reply(`${strayText.slice(0, 2000 - tag.length)}${tag}`);
+        const sent = await target.reply(`${cleanOutgoing(strayText).slice(0, 2000 - tag.length)}${tag}`);
         send.sentMessageIds.push(sent.id);
       }
 
@@ -510,7 +541,7 @@ export class Pipeline {
       this.decide({
         ...base(),
         outcome: send.sentMessageIds.length > 0 ? "replied" : send.reacted ? "reacted" : "silent",
-        details: describeRun(outcome.result, {
+        details: { ...(run.triage ? { triage: run.triage } : {}), ...describeRun(outcome.result, {
           participants,
           authorId: target.author.id,
           skills: skills.map((k) => k.name),
@@ -518,7 +549,7 @@ export class Pipeline {
           mentionNote: this.mentionNote(target, directory),
           fallback: outcome.isFallback ? `modèle de secours : ${shortModelName(outcome.ref)}` : null,
           freeOnly: overBudget,
-        }),
+        }) },
       });
       log.info(
         { channelId: target.channelId, model: outcome.ref.id, fallback: outcome.isFallback, sent: send.sentMessageIds.length },

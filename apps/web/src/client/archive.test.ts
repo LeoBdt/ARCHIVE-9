@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffStates, LEVELS, reliability, signed, stamp } from "./archive.ts";
+import { diffStates, reliability, signed, stamp } from "./archive.ts";
 
 describe("archive helpers", () => {
   it("stamps each nature, with dark inks", () => {
@@ -10,10 +10,6 @@ describe("archive helpers", () => {
 
   it("turns confidence into five marks", () => {
     expect([0, 0.3, 0.9, 1].map(reliability)).toEqual([0, 2, 5, 5]);
-  });
-
-  it("files every affinity in exactly one drawer", () => {
-    for (const a of [-100, -30, -29, -1, 0, 29, 30, 100]) expect(LEVELS.filter((l) => l.test(a))).toHaveLength(1);
   });
 
   it("signs numbers with a real minus", () => {

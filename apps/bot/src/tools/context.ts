@@ -17,7 +17,7 @@ export interface ToolContext {
   selfId: string;
   /** The server ARCHIVE-9 lives on: actions only ever happen there. */
   guildId: string;
-  /** Where bots may do anything; actions that stay inside it need no confirmation. */
+  /** Where bots may speak freely. Actions still wait for a confirmation there. */
   agentsCategoryId: string | null;
   /** Someone spoke to ARCHIVE-9 (mention, name, reply, DM). */
   addressed: boolean;

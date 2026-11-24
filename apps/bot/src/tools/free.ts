@@ -1,9 +1,9 @@
 import { formatTranscript } from "@archive-9/core";
-import { logAction, memberContexts, recentMessages } from "@archive-9/db";
+import { memberContexts, recentMessages } from "@archive-9/db";
 import { tool } from "ai";
-import { ChannelType, PermissionFlagsBits, ThreadAutoArchiveDuration, type GuildBasedChannel } from "discord.js";
+import { PermissionFlagsBits, type GuildBasedChannel } from "discord.js";
 import { z } from "zod";
-import { errorText, homeGuild, refused, requesterMember, type ToolContext } from "./context.ts";
+import { homeGuild, refused, requesterMember, type ToolContext } from "./context.ts";
 
 const MAX_READ = 30;
 
@@ -19,11 +19,6 @@ export function findChannel(channels: Iterable<GuildBasedChannel>, query: string
 }
 
 export function createFreeTools(ctx: ToolContext) {
-  const log = (tool: string, params: Record<string, unknown>) =>
-    logAction(ctx.db, { tool, tier: "free", params, status: "done", requestedBy: ctx.target.author.id, sourceMessageId: ctx.target.id }).catch((err: unknown) => {
-      ctx.log.warn({ err }, "could not log action");
-    });
-
   return {
     readChannel: tool({
       description: "Relit les derniers messages archivés d'un autre salon du serveur (nom ou ID). Utile quand on parle de ce qui s'est dit ailleurs.",
@@ -53,7 +48,7 @@ export function createFreeTools(ctx: ToolContext) {
     }),
 
     findMember: tool({
-      description: "Cherche un membre par son nom, pseudo ou ancien pseudo, et donne son ID et sa fiche.",
+      description: "Cherche un membre par son nom, pseudo ou ancien pseudo, et donne son ID et le résumé de son dossier.",
       inputSchema: z.object({ query: z.string().min(2).max(100) }),
       execute: async ({ query }) => {
         const tagged = /^<@!?(\d+)>$/.exec(query.trim())?.[1] ?? query.trim();
@@ -67,51 +62,6 @@ export function createFreeTools(ctx: ToolContext) {
             return { id, name: member?.name ?? id, isBot: member?.isBot ?? false, summary: contexts.get(id)?.summary ?? null };
           }),
         };
-      },
-    }),
-
-    createThread: tool({
-      description: "Ouvre un fil de discussion sur le message cible, avec un premier message optionnel dedans. Pour un sujet qui mérite son propre espace.",
-      inputSchema: z.object({
-        name: z.string().min(1).max(100),
-        message: z.string().min(1).max(2000).optional().describe("premier message dans le fil"),
-      }),
-      execute: async ({ name, message }) => {
-        const { target } = ctx;
-        if (target.channel.type !== ChannelType.GuildText && target.channel.type !== ChannelType.GuildAnnouncement) {
-          return refused("pas de fil possible ici");
-        }
-        if (target.hasThread) return refused("ce message a déjà un fil");
-        try {
-          const thread = await target.startThread({ name, autoArchiveDuration: ThreadAutoArchiveDuration.OneDay });
-          if (message) ctx.send.sentMessageIds.push((await thread.send(message)).id);
-          await log("createThread", { name, threadId: thread.id });
-          return { ok: true, threadId: thread.id };
-        } catch (error) {
-          return { ok: false, error: errorText(error) };
-        }
-      },
-    }),
-
-    createPoll: tool({
-      description: "Lance un sondage Discord dans le salon. Compte comme un message envoyé.",
-      inputSchema: z.object({
-        question: z.string().min(1).max(300),
-        answers: z.array(z.string().min(1).max(55)).min(2).max(10),
-        hours: z.number().int().min(1).max(168).default(24).describe("durée en heures"),
-        multiple: z.boolean().default(false).describe("plusieurs réponses possibles"),
-      }),
-      execute: async ({ question, answers, hours, multiple }) => {
-        try {
-          const sent = await ctx.channel.send({
-            poll: { question: { text: question }, answers: answers.map((text) => ({ text })), duration: hours, allowMultiselect: multiple },
-          });
-          ctx.send.sentMessageIds.push(sent.id);
-          await log("createPoll", { question, answers, hours });
-          return { ok: true, sent: true };
-        } catch (error) {
-          return { ok: false, error: errorText(error) };
-        }
       },
     }),
   };

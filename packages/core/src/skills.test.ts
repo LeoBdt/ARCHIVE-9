@@ -6,7 +6,7 @@ describe("checkSkillDraft", () => {
     const check = checkSkillDraft({ name: "  Anti  ananas ", kind: "triggered", triggers: ["Pizza", "pizza", " ananas "], rule: "Rappelle que l'ananas sur une pizza est un crime." });
     expect(check).toEqual({
       ok: true,
-      draft: { name: "Anti ananas", kind: "triggered", triggers: ["pizza", "ananas"], rule: "Rappelle que l'ananas sur une pizza est un crime." },
+      draft: { name: "Anti ananas", kind: "triggered", triggers: ["pizza", "ananas"], rule: "Rappelle que l'ananas sur une pizza est un crime.", channelId: null, memberId: null },
     });
   });
 
@@ -85,5 +85,21 @@ describe("checkOwnFactText", () => {
     expect(checkOwnFactText("Écrivez-moi à tom@example.org")).toContain("adresse");
     expect(checkOwnFactText("Son site : https://tom.dev")).toContain("lien");
     expect(checkOwnFactText("Joignable au 06 12 34 56 78")).toContain("numéro");
+  });
+});
+
+describe("scoped skills", () => {
+  const base = { kind: "permanent" as const, triggers: [], rule: "r", usageCount: 0 };
+  it("keeps a channel or member skill to its place", () => {
+    const skills = [
+      { ...base, id: "1", name: "partout" },
+      { ...base, id: "2", name: "salon", channelId: "c1" },
+      { ...base, id: "3", name: "perso", memberId: "m1" },
+    ];
+    const names = (place?: Parameters<typeof selectSkills>[2]) => selectSkills(skills, "x", place).map((s) => s.name);
+    expect(names({ channelId: "c1", authorId: "m1" })).toEqual(["partout", "salon", "perso"]);
+    expect(names({ channelId: "thread", parentId: "c1", authorId: "m2" })).toEqual(["partout", "salon"]);
+    expect(names({ channelId: "c2", authorId: "m2" })).toEqual(["partout"]);
+    expect(names()).toEqual(["partout"]);
   });
 });

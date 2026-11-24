@@ -1,4 +1,4 @@
-import type { FactNature, SelfStateView } from "./api.ts";
+import type { Category, FactNature, SelfStateView } from "./api.ts";
 
 /** Fact categories as drawers: label and the colour of their edge. */
 export const CATEGORIES: Record<string, { label: string; color: string }> = {
@@ -16,6 +16,12 @@ export const CATEGORIES: Record<string, { label: string; color: string }> = {
 };
 
 export const CATEGORY_ORDER = Object.keys(CATEGORIES);
+
+/** A drawer's label and colour, from the list the server sent or the starting ones. */
+export function categoryOf(key: string, known: ReadonlyMap<string, Category>): { label: string; color: string } {
+  const c = known.get(key) ?? CATEGORIES[key];
+  return c ? { label: c.label, color: c.color } : { label: key, color: "#b9b9c3" };
+}
 
 /** The stamp on an index card. Inks are dark enough to read on the card's cream. */
 export function stamp(nature: FactNature, reporter: string | null): { text: string; ink: string; dashed: boolean; tilt: number } {
@@ -35,22 +41,6 @@ export function stamp(nature: FactNature, reporter: string | null): { text: stri
 export function reliability(confidence: number): number {
   return Math.max(0, Math.min(5, Math.round(confidence * 5)));
 }
-
-export interface Level {
-  key: string;
-  label: string;
-  rule: string;
-  color: string;
-  test: (affinity: number) => boolean;
-}
-
-/** Drawers of the relations page, from closest to furthest. */
-export const LEVELS: Level[] = [
-  { key: "close", label: "PROCHES", rule: "affinité de +30 et plus", color: "#ff4757", test: (a) => a >= 30 },
-  { key: "known", label: "CONNAISSANCES", rule: "de 0 à +29", color: "#e9e9ee", test: (a) => a >= 0 && a < 30 },
-  { key: "far", label: "À DISTANCE", rule: "de −29 à −1", color: "#8d8d98", test: (a) => a < 0 && a > -30 },
-  { key: "watched", label: "SOUS SURVEILLANCE", rule: "−30 et moins", color: "#a03040", test: (a) => a <= -30 },
-];
 
 export function signed(n: number): string {
   return n > 0 ? `+${String(n)}` : n < 0 ? `−${String(-n)}` : "0";

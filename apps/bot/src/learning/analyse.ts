@@ -6,6 +6,7 @@ import {
   contextBefore,
   currentFacts,
   deleteSummary,
+  listCategories,
   memberContexts,
   notify,
   participantProfiles,
@@ -88,6 +89,7 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
   const report: AnalysisReport = { batches: 0, messages: 0, facts: 0, summaries: 0, costUsd: 0, failed: false, budgetReached: false };
   const touched = new Set<string>();
   const server = await loadServerContext(db, deps.server);
+  const categories = (await listCategories(db)).map(({ key, label, color }) => ({ key, label, color }));
 
   analysis: for (;;) {
     const now = new Date();
@@ -120,7 +122,7 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
       const participants = (await participantProfiles(db, ids, FACTS_IN_PROMPT)).filter(
         (p) => !p.isBot || p.isKnownAiBot,
       );
-      const outcome = await analyse(ai, { selfId, timezone: deps.timezone, server, participants, conversations });
+      const outcome = await analyse(ai, { selfId, timezone: deps.timezone, server, participants, conversations, categories });
       const messageIds = batch.flat().map((m) => m.id);
       report.costUsd += costOf(outcome.usage);
       await saveUsage(db, outcome.usage, `${String(messageIds.length)} messages`);
@@ -175,7 +177,7 @@ export async function refreshSummaries(deps: LearningDeps, memberIds: string[], 
       facts,
     });
     report.costUsd += costOf(outcome.usage);
-    await saveUsage(db, outcome.usage, `fiche ${memberId}`);
+    await saveUsage(db, outcome.usage, `dossier ${memberId}`);
     if (!outcome.summary || !outcome.ref) continue;
     await saveSummary(db, { memberId, ...outcome.summary, factCount: facts.length, model: outcome.ref.model });
     written += 1;

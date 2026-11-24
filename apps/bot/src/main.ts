@@ -1,7 +1,7 @@
 import { AiRuntime, buildBio, createModelResolver } from "@archive-9/ai";
 import { versionLabel } from "@archive-9/core";
 import { createDb, ensureServerProfile, ensureWebRole, ping, runMigrations, setInGuild, syncGuildMembers, type MemberInput } from "@archive-9/db";
-import { Client, Events, GatewayIntentBits, Partials, type Guild, type GuildMember, type PartialGuildMember } from "discord.js";
+import { Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, type Guild, type GuildMember, type PartialGuildMember } from "discord.js";
 import { COMMANDS, handleInteraction } from "./commands.ts";
 import { parseEnv } from "./env.ts";
 import { startHealthServer } from "./health.ts";
@@ -10,6 +10,8 @@ import { startLearningJobs } from "./learning/jobs.ts";
 import { createLogger } from "./logger.ts";
 import { Pipeline } from "./pipeline.ts";
 import { Presence } from "./presence.ts";
+import { recordRelease } from "./releases.ts";
+import { startRequestWorker } from "./requests.ts";
 import { SettingsStore } from "./settings.ts";
 
 const env = parseEnv();
@@ -62,6 +64,7 @@ const presence = new Presence({ db, ai, log, settings, timezone: env.BOT_TIMEZON
 const server = { id: env.DISCORD_GUILD_ID };
 let pipeline: Pipeline | undefined;
 let stopJobs: (() => void) | undefined;
+let stopRequests: (() => void) | undefined;
 
 const safely = (label: string, task: () => Promise<unknown>) => {
   task().catch((err: unknown) => {
@@ -85,35 +88,36 @@ discord.once(Events.ClientReady, (client) => {
     replyDailyBudgetUsd: env.REPLY_DAILY_BUDGET_USD,
     version,
     startedAt,
+    siteUrl: env.SITE_URL ?? null,
   });
   presence.start(client);
   safely("bio", async () => {
-    const bio = buildBio(version);
+    const bio = buildBio(version, env.SITE_URL);
     const application = await client.application.fetch();
     if (application.description === bio) return;
     await client.application.edit({ description: bio });
     log.info("bio updated");
   });
-  stopJobs ??= startLearningJobs(
-    {
-      db,
-      client: sqlClient,
-      ai,
-      log,
-      selfId: client.user.id,
-      timezone: env.BOT_TIMEZONE,
-      channelName: (id) => {
-        const channel = client.channels.cache.get(id);
-        return channel && "name" in channel ? channel.name : null;
-      },
-      server,
+  const learning = {
+    db,
+    client: sqlClient,
+    ai,
+    log,
+    selfId: client.user.id,
+    timezone: env.BOT_TIMEZONE,
+    channelName: (id: string) => {
+      const channel = client.channels.cache.get(id);
+      return channel && "name" in channel ? channel.name : null;
     },
-    {
-      analysisDailyBudgetUsd: env.ANALYSIS_DAILY_BUDGET_USD,
-      reflectionHour: env.REFLECTION_HOUR,
-      retentionDays: env.MESSAGE_RETENTION_DAYS,
-    },
-  );
+    server,
+  };
+  stopJobs ??= startLearningJobs(learning, {
+    analysisDailyBudgetUsd: env.ANALYSIS_DAILY_BUDGET_USD,
+    reflectionHours: () => settings.value.reflectionHours,
+    retentionDays: env.MESSAGE_RETENTION_DAYS,
+  });
+  stopRequests ??= startRequestWorker({ ...learning, settings });
+  safely("release", () => recordRelease({ db, ai, log, repo: env.GITHUB_REPO, sha: env.GIT_SHA }));
   safely("command registration", async () => {
     await registerCommands(await client.guilds.fetch(env.DISCORD_GUILD_ID));
   });
@@ -136,7 +140,13 @@ async function publishChannels(guild: Guild) {
   const channels = await guild.channels.fetch();
   const list = [...channels.values()]
     .filter((c) => c?.isTextBased() && !c.isThread())
-    .map((c) => ({ id: c?.id ?? "", name: c?.name ?? "", category: c?.parent?.name ?? null }));
+    .map((c) => ({
+      id: c?.id ?? "",
+      name: c?.name ?? "",
+      category: c?.parent?.name ?? null,
+      // Only public channels show their messages on the site.
+      isPublic: c ? c.permissionsFor(guild.roles.everyone).has(PermissionFlagsBits.ViewChannel) : false,
+    }));
   await settings.set("channelDirectory", list, null);
 }
 
@@ -148,7 +158,7 @@ setInterval(() => {
 }, 30_000);
 
 function memberInput(m: GuildMember | PartialGuildMember): MemberInput {
-  return { id: m.id, username: m.user.username, displayName: m.displayName, isBot: m.user.bot, isKnownAiBot: knownAiBotIds.has(m.id) };
+  return { id: m.id, username: m.user.username, displayName: m.displayName, isBot: m.user.bot, isKnownAiBot: knownAiBotIds.has(m.id), avatar: m.user.avatar };
 }
 
 // Who is on the server decides who may open the site.
@@ -202,6 +212,7 @@ async function shutdown(signal: string) {
   pipeline?.stop();
   presence.stop();
   stopJobs?.();
+  stopRequests?.();
   health.close();
   await discord.destroy();
   await closeDb();
