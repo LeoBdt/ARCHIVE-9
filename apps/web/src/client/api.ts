@@ -97,6 +97,7 @@ export interface Fact {
   reportedByName: string | null;
   source: string | null;
   sourceMessageId: string | null;
+  number: number;
   createdAt: string;
   corrected: { at: string; by: string | null; reason: string } | null;
 }
@@ -245,8 +246,9 @@ export interface ReplyEntry {
     steps?: { tool: string; summary: string }[];
     sent?: string | null;
     triage?: TriageDetails | null;
-    people?: { id: string; name: string; affinity: number | null; trust: number | null; feeling: string | null }[];
+    people?: { id: string; name: string; avatar: string | null; affinity: number | null; trust: number | null; feeling: string | null }[];
     skills?: string[];
+    memory?: { messages: number; places: string[]; mood: string };
   } | null;
   createdAt: string;
   usage: {
@@ -280,6 +282,7 @@ export type LearnedEntry =
       name: string;
       avatar: string | null;
       factId: string;
+      number: number;
       current: boolean;
       category: Category;
       nature: FactNature;

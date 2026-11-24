@@ -23,7 +23,7 @@ export function Process({ request }: { request: RequestView | undefined }) {
     <ol className="process" aria-live="polite">
       {request.steps.map((step, i) => (
         <li key={i} className={`process-${step.kind}`}>
-          {step.kind !== "say" && <time dateTime={step.at}>{clock(step.at, TIME_ZONE)}</time>}
+          {step.kind === "say" ? <span /> : <time dateTime={step.at}>{clock(step.at, TIME_ZONE)}</time>}
           <span className="process-dot" aria-hidden="true">
             {step.kind === "error" ? "✗" : step.kind === "say" ? "»" : "✓"}
           </span>

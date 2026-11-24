@@ -441,6 +441,8 @@ export interface DecisionDetails {
   people?: { id: string; name: string; affinity: number | null; trust: number | null; feeling: string | null }[];
   /** Skills given to the reply, to link them. */
   skills?: string[];
+  /** Its short memory of the author (messages elsewhere lately) and its mood then. */
+  memory?: { messages: number; places: string[]; mood: string };
 }
 
 /** Every message ARCHIVE-9 looked at, and what it decided. Kept 14 days. Feeds the journal and the backstage page. */

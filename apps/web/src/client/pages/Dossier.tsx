@@ -11,7 +11,7 @@ import { Sheet } from "../components/Sheet.tsx";
 import { SourceSheet } from "../components/Source.tsx";
 import { ago, dayMonth, formatCount, when } from "../format.ts";
 
-const code = (i: number) => `F${String(i + 1).padStart(3, "0")}`;
+export const code = (n: number) => `F${String(n).padStart(3, "0")}`;
 
 /** The card pulled out of its drawer: the change is saved, then ARCHIVE-9 follows up, step by step. */
 function EditSheet({ fact, label, memberId, onClose }: { fact: Fact; label: string; memberId: string; onClose: () => void }) {
@@ -213,7 +213,7 @@ export function Dossier() {
   }
   if (!data) return <main className="page" aria-busy="true" />;
 
-  const codes = new Map(data.facts.map((f, i) => [f.id, code(i)]));
+  const codes = new Map(data.facts.map((f) => [f.id, code(f.number)]));
   const known = new Map<string, Category>(data.categories.map((c) => [c.key, c]));
   const drawers = data.categories
     .map((c) => ({ c, facts: data.facts.filter((f) => f.category === c.key) }))

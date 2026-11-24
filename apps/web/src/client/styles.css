@@ -335,7 +335,7 @@ table.data.clickable tbody tr:hover td, table.data.clickable tbody tr:focus td {
 .process-dot { font-family: var(--pixel); color: var(--green); }
 .process-error .process-dot { color: var(--red); }
 .process-error { color: var(--red-ink); }
-.process-say { background: var(--red-deep); color: var(--red-ink); padding: 10px; grid-template-columns: 0 18px minmax(0, 1fr); }
+.process li.process-say { background: var(--red-deep); color: var(--red-ink); padding: 10px; grid-template-columns: 0 18px minmax(0, 1fr); gap: 0 10px; }
 .process-wait .process-dot { color: var(--yellow); }
 @media (prefers-reduced-motion: reduce) { .process li { animation: none; } }
 
@@ -456,12 +456,12 @@ table.data.clickable tbody tr:hover td, table.data.clickable tbody tr:focus td {
 .kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 10px 18px; }
 .kv > div { display: flex; flex-direction: column; font-size: 13.5px; overflow-wrap: anywhere; }
 .kv > div > span:first-child { font-family: var(--pixel); font-size: 10px; color: var(--muted); }
-details.more { border-top: 2px solid var(--line); padding-top: 12px; }
-details.more > summary { font-family: var(--pixel); font-size: 11px; color: var(--text); cursor: pointer; list-style: none; display: inline-flex; gap: 8px; padding: 7px 11px; border: 2px solid var(--edge); min-height: 34px; align-items: center; }
-details.more > summary::-webkit-details-marker { display: none; }
-details.more > summary::before { content: "▸"; }
-details.more[open] > summary::before { content: "▾"; }
-details.more > div { padding-top: 16px; animation: slide .3s steps(4) both; }
+details.fold { border-top: 2px solid var(--line); padding-top: 12px; }
+details.fold > summary { font-family: var(--pixel); font-size: 11px; color: var(--text); cursor: pointer; list-style: none; display: inline-flex; gap: 8px; padding: 7px 11px; border: 2px solid var(--edge); min-height: 34px; align-items: center; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "▸"; }
+details.fold[open] > summary::before { content: "▾"; }
+details.fold > div { padding-top: 16px; animation: slide .3s steps(4) both; }
 .learned { gap: 12px; }
 .learned-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .learned-top time { color: var(--text-soft); font-size: 13px; }

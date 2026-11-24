@@ -448,6 +448,7 @@ export class Pipeline {
       const directory = await this.directory();
       const participants = await this.participants(history, target, directory);
       const elsewhere = await this.elsewhere(target, history);
+      const selfState = await currentSelfState(db, INITIAL_SELF_STATE);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
       const skills = selectSkills(await activeSkills(db), target.content, { channelId: target.channelId, parentId: parentIdOf(target), authorId: target.author.id });
       const outcome = await reply(
@@ -468,7 +469,7 @@ export class Pipeline {
           participants,
           elsewhere,
           server: isDm || target.guildId === this.deps.server.id ? await loadServerContext(db, this.deps.server) : undefined,
-          selfState: await currentSelfState(db, INITIAL_SELF_STATE),
+          selfState,
           // Until the evening reflection has weighed it, recent feedback is shown as is.
           feedback: (await pendingFeedback(db)).slice(-8),
           skills: skills.map((k) => ({
@@ -545,11 +546,13 @@ export class Pipeline {
           participants,
           authorId: target.author.id,
           skills: skills.map((k) => k.name),
-          resolutions: (await currentSelfState(db, INITIAL_SELF_STATE)).resolutions ?? [],
+          resolutions: selfState.resolutions ?? [],
           mentionNote: this.mentionNote(target, directory),
           fallback: outcome.isFallback ? `modèle de secours : ${shortModelName(outcome.ref)}` : null,
           freeOnly: overBudget,
-        }) },
+        }),
+        memory: { messages: elsewhere.reduce((n, p) => n + p.messages.length, 0), places: elsewhere.map((p) => p.where), mood: selfState.mood },
+        },
       });
       log.info(
         { channelId: target.channelId, model: outcome.ref.id, fallback: outcome.isFallback, sent: send.sentMessageIds.length },
