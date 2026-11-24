@@ -100,6 +100,8 @@ export async function dossier(db: Database, memberId: string) {
         channelId: source.channelId,
         messageId: sql<string | null>`${profileFacts.sourceMessageIds}[1]`,
         archived: sql<boolean>`${source.id} is not null`,
+        // F001, F002…: its rank in the dossier, history included, so it never changes.
+        number: sql<number>`(select count(*)::int from profile_facts o where o.member_id = ${profileFacts.memberId} and (o.created_at, o.id) <= (${profileFacts.createdAt}, ${profileFacts.id}))`,
         createdAt: profileFacts.createdAt,
         // The member's (or an admin's) correction that produced this fact, if any.
         corrected: sql<{ at: string; by: string | null; reason: string } | null>`(
@@ -403,7 +405,15 @@ export async function replyJournal(db: Database, viewer: { id: string; isAdmin: 
         .groupBy(aiUsage.runId)
     : [];
   const byRun = new Map(usage.map((u) => [u.runId, u]));
-  return rows.map(({ runId, guildId, channelId, messageId, ...r }) => ({ ...r, link: sourceLink(guildId, channelId, messageId), usage: runId ? (byRun.get(runId) ?? null) : null }));
+  const peopleIds = [...new Set(rows.flatMap((r) => r.details?.people?.map((p) => p.id) ?? []))];
+  const pictures = peopleIds.length ? await db.select({ id: members.id, avatar: members.avatar }).from(members).where(inArray(members.id, peopleIds)) : [];
+  const avatarOf = new Map(pictures.map((p) => [p.id, p.avatar]));
+  return rows.map(({ runId, guildId, channelId, messageId, details, ...r }) => ({
+    ...r,
+    details: details ? { ...details, people: details.people?.map((p) => ({ ...p, avatar: avatarOf.get(p.id) ?? null })) } : null,
+    link: sourceLink(guildId, channelId, messageId),
+    usage: runId ? (byRun.get(runId) ?? null) : null,
+  }));
 }
 
 /**
@@ -430,6 +440,7 @@ export async function learnedJournal(db: Database, publicChannels: ReadonlySet<s
         content: fact.content,
         reporter: sql<string | null>`coalesce(${reporter.displayName}, ${reporter.username})`,
         current: sql<boolean>`${fact.supersededBy} is null and ${fact.deletedAt} is null`,
+        number: sql<number>`(select count(*)::int from profile_facts o where o.member_id = ${fact.memberId} and (o.created_at, o.id) <= (${fact.createdAt}, ${fact.id}))`,
         createdAt: fact.createdAt,
         sourceId: source.id,
         sourceGuildId: source.guildId,
@@ -503,6 +514,7 @@ export async function learnedJournal(db: Database, publicChannels: ReadonlySet<s
       name: f.name,
       avatar: f.avatar,
       factId: f.id,
+      number: f.number,
       current: f.current,
       category: { key: f.category, ...(drawer.get(f.category) ?? { label: f.category, color: "#b9b9c3" }) },
       nature: f.nature,

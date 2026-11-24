@@ -8,6 +8,7 @@ import { Sheet } from "../components/Sheet.tsx";
 import { SourceSheet } from "../components/Source.tsx";
 import { Tabs } from "../components/Tabs.tsx";
 import { clock, ms, TIME_ZONE, tokens, usd, when } from "../format.ts";
+import { code } from "./Dossier.tsx";
 
 const OUTCOMES = {
   replied: { label: "RÉPONDU", color: "var(--green)", tilt: -2 },
@@ -138,7 +139,10 @@ function Reply({ r }: { r: ReplyEntry }) {
           <div className="stack-8">
             {d?.people?.map((p) => (
               <Link key={p.id} to={`/archives/${p.id}`} className="person-line px-dim">
-                <strong>{p.name}</strong>
+                <span className="who-link">
+                  <Avatar id={p.id} name={p.name} hash={p.avatar} size={32} />
+                  <strong>{p.name}</strong>
+                </span>
                 {p.affinity !== null ? (
                   <>
                     <span className="chip aff">affinité {signed(p.affinity)}</span>
@@ -160,6 +164,11 @@ function Reply({ r }: { r: ReplyEntry }) {
                 ))}
               </div>
             )}
+            {d?.memory && (
+              <span className="meta strong">
+                mémoire courte : {d.memory.messages === 0 ? "rien d'autre ces 6 dernières heures" : `${String(d.memory.messages)} message${d.memory.messages > 1 ? "s" : ""} ailleurs ces 6 dernières heures (${d.memory.places.join(", ")})`} · humeur : {d.memory.mood}
+              </span>
+            )}
             {d?.context
               ?.filter((c) => !c.startsWith("Skills appliquées") && !/: (affinité|aucune relation)/.test(c))
               .map((c, i) => (
@@ -170,7 +179,7 @@ function Reply({ r }: { r: ReplyEntry }) {
           </div>
         </Block>
       ) : null}
-      <details className="more">
+      <details className="fold">
         <summary>Détails</summary>
         <div className="stack-16">
           <Block label="Mon raisonnement">
@@ -299,7 +308,7 @@ function Learned({ e, onSource }: { e: LearnedEntry; onSource: (id: string) => v
           <strong>{e.name}</strong>
         </Link>
         <span className="cat" style={{ background: e.category.color }}>
-          {e.category.label}
+          {e.category.label} · {code(e.number)}
         </span>
         <span className="mini-stamp" style={{ color: s.text === "FAIT" ? "var(--green)" : "var(--muted)" }}>
           {s.text}
