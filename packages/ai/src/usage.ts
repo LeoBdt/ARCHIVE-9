@@ -7,6 +7,8 @@ export interface UsageRecord {
   provider: string;
   model: string;
   upstreamProvider: string | null;
+  /** The model a router really used (openrouter/free picks one), when it differs. */
+  servedModel?: string | null;
   fallbackReason: string | null;
   inputTokens: number;
   outputTokens: number;
@@ -20,6 +22,7 @@ export interface UsageRecord {
 interface ResultLike {
   totalUsage: LanguageModelUsage;
   providerMetadata?: Record<string, unknown> | undefined;
+  response?: { modelId?: string | undefined };
 }
 
 interface OpenRouterMeta {
@@ -41,10 +44,12 @@ export function usageFromResult(
 ): UsageRecord {
   const meta = openrouterMeta(result);
   const cost = meta?.usage?.cost;
+  const served = result.response?.modelId;
   return {
     task,
     provider: ref.provider,
     model: ref.model,
+    servedModel: served && served !== ref.model && !ref.model.endsWith(served) ? served : null,
     upstreamProvider: typeof meta?.provider === "string" ? meta.provider : null,
     fallbackReason,
     inputTokens: result.totalUsage.inputTokens ?? 0,

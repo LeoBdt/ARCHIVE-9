@@ -4,8 +4,11 @@ import type { SqlClient } from "./client.ts";
 export const WEB_DB_ROLE = "archive9_web";
 
 const WRITABLE = ["web_user", "web_session", "web_account", "web_verification", "site_admins"];
-/** What the site changes for members and admins: their own facts, the settings, a rollback of the self state. */
-const APPENDABLE = ["profile_facts", "fact_corrections", "settings", "self_state_versions"];
+/**
+ * What the site changes for members and admins: their own facts, the settings, a rollback of
+ * the self state, the requests ARCHIVE-9 handles, and closing a skill.
+ */
+const APPENDABLE = ["profile_facts", "fact_corrections", "settings", "self_state_versions", "site_requests", "skills"];
 
 /**
  * Creates or updates the site's user. Run by the bot after its migrations, so new tables

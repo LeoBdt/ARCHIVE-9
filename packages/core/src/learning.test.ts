@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { groupConversations, packConversations } from "./conversations.ts";
 import { applyAffinity, applyTrust, capDelta } from "./relationship.ts";
-import { localDayAndHour, readyConversations, reflectionDue } from "./schedule.ts";
+import { dueReflection, formatVersionLabel, localDayAndHour, nextVersionLabel, readyConversations, reflectionDue } from "./schedule.ts";
 import { applySelfStateChange } from "./self-state.ts";
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 10, 0) + minutes * 60_000);
@@ -121,5 +121,35 @@ describe("reflectionDue", () => {
     expect(reflectionDue(evening, null, tz, 23)).toBe(true);
     expect(reflectionDue(evening, new Date("2026-06-30T21:10:00Z"), tz, 23)).toBe(true);
     expect(reflectionDue(evening, new Date("2026-07-01T21:01:00Z"), tz, 23)).toBe(false);
+  });
+});
+
+describe("dueReflection", () => {
+  const tz = "Europe/Paris";
+  const none = { midday: null, evening: null };
+  it("runs the midday one between noon and the evening, then the evening one", () => {
+    expect(dueReflection(new Date("2026-07-01T08:00:00Z"), none, tz)).toBeNull();
+    expect(dueReflection(new Date("2026-07-01T10:30:00Z"), none, tz)).toBe("midday");
+    const doneAtNoon = { midday: new Date("2026-07-01T10:31:00Z"), evening: null };
+    expect(dueReflection(new Date("2026-07-01T15:00:00Z"), doneAtNoon, tz)).toBeNull();
+    expect(dueReflection(new Date("2026-07-01T20:05:00Z"), doneAtNoon, tz)).toBe("evening");
+  });
+  it("never stacks the midday one after a late start", () => {
+    const yesterday = { midday: new Date("2026-06-30T10:00:00Z"), evening: new Date("2026-06-30T20:00:00Z") };
+    expect(dueReflection(new Date("2026-07-01T20:30:00Z"), yesterday, tz)).toBe("evening");
+    const tonight = { ...yesterday, evening: new Date("2026-07-01T20:31:00Z") };
+    expect(dueReflection(new Date("2026-07-01T21:00:00Z"), tonight, tz)).toBeNull();
+  });
+});
+
+describe("nextVersionLabel", () => {
+  it("counts in half steps, midday whole, evening ,5", () => {
+    expect(nextVersionLabel(null, "evening")).toBe(1);
+    expect(nextVersionLabel(4.5, "midday")).toBe(5);
+    expect(nextVersionLabel(5, "evening")).toBe(5.5);
+    expect(nextVersionLabel(4.5, "evening")).toBe(5.5);
+    expect(nextVersionLabel(5.5, "other")).toBe(6);
+    expect(formatVersionLabel(4.5)).toBe("4,5");
+    expect(formatVersionLabel(5)).toBe("5");
   });
 });

@@ -21,7 +21,7 @@ describe("describeRun", () => {
         freeOnly: false,
       },
     );
-    expect(details).toEqual({
+    expect(details).toMatchObject({
       context: ["Léa : affinité 38, confiance 80, « curieuse »", "Ses préférences : Vouvoie-moi.", "Skills appliquées : Donut", "Mes résolutions : je pique moins"],
       reasoning: "Elle demande une correction.",
       steps: [

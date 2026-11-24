@@ -43,6 +43,20 @@ export async function undoAction(guild: Guild, action: LoggedAction, by: string)
       await message.unpin(reason);
       return "message désépinglé";
     }
+    case "createThread": {
+      const thread = await guild.channels.fetch(str(prev.threadId)).catch(() => null);
+      if (!thread) return "fil déjà supprimé";
+      await thread.delete(reason);
+      return `fil « ${thread.name} » supprimé`;
+    }
+    case "createPoll": {
+      const channel = await guild.channels.fetch(str(prev.channelId)).catch(() => null);
+      if (!channel?.isTextBased()) return "salon introuvable";
+      const message = await channel.messages.fetch(str(prev.messageId)).catch(() => null);
+      if (!message) return "sondage déjà supprimé";
+      await message.delete();
+      return "sondage supprimé";
+    }
     default:
       throw new Error(`action inconnue : ${action.tool}`);
   }

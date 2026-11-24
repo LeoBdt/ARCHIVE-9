@@ -1,8 +1,9 @@
 import {
-  FACT_CATEGORIES,
+  BASE_CATEGORY_INFO,
   FACT_NATURES,
   formatTranscript,
   truncate,
+  type CategoryInfo,
   type FactCategory,
   type FactNature,
   type TranscriptMessage,
@@ -12,7 +13,7 @@ import { z } from "zod";
 import { ANALYSIS_SYSTEM } from "./prompts/analysis.ts";
 import type { ModelRef } from "./routes.ts";
 import type { AiRuntime } from "./runtime.ts";
-import { readStructured } from "./structured.ts";
+import { readStructured, structuredProblem } from "./structured.ts";
 import type { UsageRecord } from "./usage.ts";
 
 export interface KnownFact {
@@ -59,7 +60,11 @@ export interface AnalysisInput {
   server?: ServerContext;
   participants: AnalysisParticipant[];
   conversations: AnalysisConversation[];
+  /** The drawers facts can go in; the starting ones when absent. */
+  categories?: CategoryInfo[];
 }
+
+export const BASE_CATEGORIES: CategoryInfo[] = Object.entries(BASE_CATEGORY_INFO).map(([key, info]) => ({ key, ...info }));
 
 export const MAX_FACTS_PER_BATCH = 20;
 
@@ -67,7 +72,7 @@ export const analysisSchema = z.object({
   facts: z.array(
     z.object({
       memberId: z.string().describe("ID Discord de la personne concernée"),
-      category: z.enum(FACT_CATEGORIES),
+      category: z.string().describe("clé d'un tiroir de la liste (games, tastes…)"),
       nature: z.enum(FACT_NATURES),
       confidence: z.number().describe("entre 0 et 1"),
       content: z.string().describe("une phrase courte, 3e personne, sans le nom"),
@@ -185,8 +190,12 @@ ${context}${formatTranscript(c.messages, options)}
 </donnees>`;
   });
 
+  const drawers = (input.categories ?? BASE_CATEGORIES).map((c) => `- ${c.key} : ${c.label}`).join("\n");
   return `ARCHIVE-9 a l'ID ${input.selfId}.
 ${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
+## Les tiroirs (category : la clé à gauche)
+${drawers}
+
 ## Participants
 ${input.participants.map((p) => describeParticipant(p, refOf)).join("\n") || "- (aucun)"}
 
@@ -222,6 +231,7 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
   const serverIds = new Set(input.participants.filter((p) => p.isServer).map((p) => p.id));
   const refs = factRefs(input.participants);
   const authorOf = new Map(input.conversations.flatMap((c) => c.messages.map((m) => [m.id, m.authorId] as const)));
+  const drawers = new Set((input.categories ?? BASE_CATEGORIES).map((c) => c.key));
 
   const facts: LearnedFact[] = [];
   const seen = new Set<string>();
@@ -250,7 +260,7 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
     seen.add(`${memberId}:${content.toLowerCase()}`);
     facts.push({
       memberId,
-      category: f.category,
+      category: drawers.has(f.category.trim()) ? f.category.trim() : "other",
       nature,
       confidence: Number.isFinite(f.confidence) ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
       content,
@@ -305,6 +315,7 @@ export async function analyse(ai: AiRuntime, input: AnalysisInput): Promise<Anal
     {
       estimatedTokens: Math.ceil((ANALYSIS_SYSTEM.length + prompt.length) / 3) + 3_000,
       accept: (result) => readStructured(result, analysisSchema) !== null,
+      explain: (result) => structuredProblem(result, analysisSchema),
     },
   );
   if (!outcome.ok) return { result: null, ref: null, usage: outcome.usage };

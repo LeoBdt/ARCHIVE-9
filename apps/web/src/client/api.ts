@@ -1,20 +1,27 @@
 export interface Viewer {
   id: string;
   name: string;
+  avatar: string | null;
   isAdmin: boolean;
   isOwner: boolean;
   optedOut: boolean;
 }
 
 export type FeedKind = "learned" | "action" | "skill" | "relation" | "memory" | "system";
+export type MoodIcon = "neutral" | "amused" | "curious" | "tired" | "annoyed" | "glitch";
+export type SelfSource = "initial" | "reflection" | "rollback" | "midday";
 
 export interface Home {
   counts: { messages: number; facts: number; dossiers: number; skills: number };
-  closest: { id: string; name: string; isBot: boolean; tagline: string | null; affinity: number; messages: number; facts: number }[];
+  closest: { id: string; name: string; isBot: boolean; avatar: string | null; tagline: string | null; affinity: number; trust: number; messages: number; facts: number }[];
   skills: { name: string; kind: "triggered" | "permanent"; rule: string; author: string | null; uses: number; expiresAt: string | null }[];
   feed: { at: string; kind: FeedKind; text: string }[];
   mood: string | null;
+  icon: MoodIcon | null;
+  moodAt: string | null;
+  moodSource: SelfSource | null;
   status: string | null;
+  statusAt: string | null;
   paused: boolean;
   version: { label: string; startedAt: string } | null;
 }
@@ -31,6 +38,13 @@ export async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin" });
   if (!response.ok) throw new HttpError(response.status);
   return (await response.json()) as T;
+}
+
+export async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? `HTTP ${String(response.status)}`);
+  return data;
 }
 
 /** Starts the Discord login; Better Auth answers with the URL to go to. */
@@ -51,15 +65,48 @@ export async function signOut(): Promise<void> {
 
 export type FactNature = "fact" | "reported" | "probable_joke" | "inference";
 
+export interface Category {
+  key: string;
+  label: string;
+  color: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
 export interface DossierSummary {
   id: string;
   name: string;
+  aliases: string[];
   isBot: boolean;
+  avatar: string | null;
   tagline: string | null;
   affinity: number | null;
+  trust: number | null;
   facts: number;
   messages: number;
-  lastSeenAt: string;
+  firstSeenAt: string;
+  changedAt: string | null;
+}
+
+export interface Fact {
+  id: string;
+  category: string;
+  nature: FactNature;
+  confidence: number;
+  content: string;
+  reportedByName: string | null;
+  source: string | null;
+  sourceMessageId: string | null;
+  createdAt: string;
+  corrected: { at: string; by: string | null; reason: string } | null;
+}
+
+export interface RelationEvent {
+  affinityDelta: number;
+  trustDelta: number;
+  reason: string;
+  sourceMessageId: string | null;
+  createdAt: string;
 }
 
 export interface Dossier {
@@ -67,21 +114,35 @@ export interface Dossier {
   name: string;
   aliases: string[];
   isBot: boolean;
+  avatar: string | null;
   isMine: boolean;
   canEdit: boolean;
   firstSeenAt: string;
   summary: string | null;
   tagline: string | null;
+  summaryAt: string | null;
   messages: number;
   relationship: { affinity: number; trust: number; feeling: string | null; howTheyTreatMe: string | null } | null;
-  facts: { id: string; category: string; nature: FactNature; confidence: number; content: string; reportedByName: string | null; source: string | null; createdAt: string }[];
-  events: { affinityDelta: number; trustDelta: number; reason: string; createdAt: string }[];
-  affinityHistory: number[];
+  facts: Fact[];
+  categories: Category[];
+  events: RelationEvent[];
+  history: { day: string; affinity: number; trust: number }[];
+  changedAt: string | null;
+}
+
+export interface MessageContext {
+  found: boolean;
+  isDm?: boolean;
+  hidden?: boolean;
+  channelName?: string | null;
+  link?: string | null;
+  at?: string;
+  messages?: { id: string; author: string; content: string; at: string; isTarget: boolean }[];
 }
 
 export interface Relations {
-  people: { id: string; name: string; isBot: boolean; affinity: number; trust: number; feeling: string | null; week: number }[];
-  moves: { name: string; affinityDelta: number; trustDelta: number; reason: string; createdAt: string }[];
+  people: { id: string; name: string; isBot: boolean; avatar: string | null; affinity: number; trust: number; feeling: string | null; week: number; weekTrust: number; changedAt: string }[];
+  moves: { memberId: string; name: string; avatar: string | null; affinityDelta: number; trustDelta: number; reason: string; sourceMessageId: string | null; createdAt: string }[];
 }
 
 export interface SelfStateView {
@@ -90,13 +151,28 @@ export interface SelfStateView {
   runningJokes: string[];
   notes: string;
   resolutions?: string[];
+  icon?: MoodIcon;
 }
 
-export interface Memory {
-  history: { version: number; state: SelfStateView; source: "initial" | "reflection" | "rollback"; createdAt: string }[];
-  pending: { author: string; content: string; createdAt: string }[];
+export interface Esprit {
+  history: { version: number; label: number; state: SelfStateView; source: SelfSource; createdAt: string }[];
+  pending: { id: string; author: string; content: string; about: string | null; source: string; createdAt: string }[];
+  reviewed: {
+    id: string;
+    author: string;
+    content: string;
+    about: string | null;
+    source: string;
+    verdict: "adopted" | "partial" | "ignored" | null;
+    verdictReason: string | null;
+    reviewedLabel: number | null;
+    reviewedAt: string;
+    createdAt: string;
+  }[];
   status: string | null;
   version: { label: string; startedAt: string } | null;
+  reflectionHours: { midday: number; evening: number };
+  paused: boolean;
 }
 
 export interface SkillView {
@@ -105,11 +181,51 @@ export interface SkillView {
   kind: "triggered" | "permanent";
   triggers: string[];
   rule: string;
+  authorId: string | null;
   author: string | null;
+  channelId: string | null;
+  channelName: string | null;
+  memberId: string | null;
+  memberName: string | null;
   uses: number;
   lastUsedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
+  updatedAt: string;
+  revisions: number;
+  canEdit: boolean;
+}
+
+export interface SkillRevision {
+  name: string;
+  kind: string;
+  triggers: string[];
+  rule: string;
+  editedBy: string | null;
+  createdAt: string;
+}
+
+export interface RequestView {
+  id: string;
+  kind: string;
+  status: "pending" | "running" | "done" | "failed";
+  steps: { at: string; kind: "step" | "say" | "error"; text: string }[];
+  result: Record<string, unknown> | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface TriageDetails {
+  transcript: string;
+  reasoning: string | null;
+  addressed: boolean;
+  interest: number;
+  reason: string;
+  model: string | null;
+  fallbackReason: string | null;
+  durationMs: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface ReplyEntry {
@@ -118,20 +234,141 @@ export interface ReplyEntry {
   reason: string | null;
   channelName: string | null;
   isDm: boolean;
+  authorId: string;
   authorName: string;
+  authorAvatar: string | null;
   content: string | null;
-  details: { context?: string[]; reasoning?: string | null; steps?: { tool: string; summary: string }[]; sent?: string | null } | null;
+  link: string | null;
+  details: {
+    context?: string[];
+    reasoning?: string | null;
+    steps?: { tool: string; summary: string }[];
+    sent?: string | null;
+    triage?: TriageDetails | null;
+    people?: { id: string; name: string; affinity: number | null; trust: number | null; feeling: string | null }[];
+    skills?: string[];
+  } | null;
   createdAt: string;
-  usage: { model: string | null; provider: string | null; fallbackReason: string | null; inputTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number; durationMs: number } | null;
+  usage: {
+    model: string | null;
+    provider: string | null;
+    version: string | null;
+    fallbackReason: string | null;
+    inputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    costUsd: number;
+    durationMs: number;
+    calls: number;
+  } | null;
 }
 
-export interface Backstage {
-  today: { seen: number; replies: number; medianMs: number | null; spentToday: number };
-  triage: { outcome: "ignored" | "silent"; reason: string | null; interest: number | null; channelName: string | null; isDm: boolean; authorName: string | null; createdAt: string }[];
-  costs: { day: string; task: string; costUsd: number }[];
+interface Quote {
+  messageId: string;
+  author: string | null;
+  channelName: string | null;
+  at: string | null;
+  content: string | null;
+  link: string | null;
+}
+
+export type LearnedEntry =
+  | {
+      kind: "fact" | "correction";
+      at: string;
+      memberId: string;
+      name: string;
+      avatar: string | null;
+      factId: string;
+      current: boolean;
+      category: Category;
+      nature: FactNature;
+      confidence: number;
+      content: string;
+      reporter: string | null;
+      source: Quote | null;
+      correction: { reason: string; source: string; by: string | null; before: string } | null;
+    }
+  | { kind: "removal"; at: string; memberId: string; name: string; avatar: string | null; content: string; reason: string; via: string; by: string | null }
+  | { kind: "drawer"; at: string; category: Category; reason: string | null; count: number };
+
+export interface ActionEntry {
+  id: string;
+  tool: string;
+  tier: "free" | "controlled";
+  params: Record<string, unknown>;
+  status: "done" | "refused" | "failed" | "undone";
+  refusalReason: string | null;
+  requestedBy: string | null;
+  createdAt: string;
+  undoneAt: string | null;
+}
+
+export interface TriageView {
+  counts: { total: number; replied: number; silent: number; ignored: number };
   ignored: { reason: string | null; n: number }[];
-  errors: { model: string; task: string; status: string; fallbackReason: string | null; createdAt: string }[];
+  rows: {
+    id: string;
+    outcome: string;
+    reason: string | null;
+    interest: number | null;
+    addressed: boolean;
+    channelName: string | null;
+    isDm: boolean;
+    authorName: string;
+    details: { triage: TriageDetails } | null;
+    createdAt: string;
+  }[];
+}
+
+export interface ErrorAttempt {
+  task: string;
+  model: string;
+  servedModel: string | null;
+  provider: string;
+  status: string;
+  error: string | null;
+  fallbackReason: string | null;
+  detail: string | null;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  createdAt: string;
+}
+
+export interface ErrorGroup {
+  task: string;
+  model: string;
+  error: string;
+  from: string;
+  to: string;
+  attempts: ErrorAttempt[];
+  next: ErrorAttempt | null;
+}
+
+export interface Release {
+  id: string;
+  kind: "core" | "site";
+  label: string;
+  sha: string;
+  previousSha: string | null;
+  comment: string | null;
+  items: { text: string; sha: string }[];
+  commits: { sha: string; title: string }[];
+  createdAt: string;
+}
+
+export interface SystemView {
+  daily: { day: string; task: string; costUsd: number; calls: number; inputTokens: number; outputTokens: number; reasoningTokens: number; errors: number }[];
+  byModel: { task: string; model: string; provider: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number; medianMs: number | null; errors: number; fallbacks: number; served: string[] | null }[];
+  byPerson: { id: string; name: string; avatar: string | null; costUsd: number; replies: number }[];
+  last24: { costUsd: number; replyCostUsd: number; calls: number; errors: number };
+  speed: { median: number | null; p95: number | null };
+  releases: { core: Release[]; site: Release[] };
+  replyBudgetUsd: number;
   paused: boolean;
+  version: { label: string; startedAt: string } | null;
 }
 
 export interface SettingsView {
@@ -139,25 +376,14 @@ export interface SettingsView {
   spontaneity: number;
   showFallbackTag: boolean;
   listenedChannelIds: string[];
-  channels: { id: string; name: string; category: string | null }[];
+  reflectionHours: { midday: number; evening: number };
+  channels: { id: string; name: string; category: string | null; isPublic?: boolean }[];
 }
 
 export interface AccessRow {
   id: string;
   name: string;
+  avatar: string | null;
   isAdmin: boolean;
   isOwner: boolean;
-}
-
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `HTTP ${String(response.status)}`);
-  return data;
-}
-
-export interface Journal {
-  replies: ReplyEntry[];
-  actions: { id: string; tool: string; tier: "free" | "controlled"; params: Record<string, unknown>; status: "done" | "refused" | "failed" | "undone"; refusalReason: string | null; requestedBy: string | null; createdAt: string; undoneAt: string | null }[];
-  events: Home["feed"];
 }

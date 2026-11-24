@@ -24,6 +24,7 @@ const app = createApp({
   db,
   ownerId: env.SITE_OWNER_ID,
   siteUrl: env.SITE_URL,
+  replyBudgetUsd: env.REPLY_DAILY_BUDGET_USD,
   clientDir: env.NODE_ENV === "production" ? fileURLToPath(new URL("../../dist/client", import.meta.url)) : null,
   auth: {
     handler: (request) => auth.handler(request),

@@ -60,3 +60,44 @@ export function reflectionDue(now: Date, lastReflectionAt: Date | null, timeZone
   if (today.hour < hour) return false;
   return !lastReflectionAt || localDayAndHour(lastReflectionAt, timeZone).day !== today.day;
 }
+
+export type ReflectionKind = "midday" | "evening";
+
+export interface ReflectionHours {
+  midday: number;
+  evening: number;
+}
+
+export const DEFAULT_REFLECTION_HOURS: ReflectionHours = { midday: 12, evening: 22 };
+
+/**
+ * Which reflection is due now, if any. The evening one is the big one; the midday one only
+ * runs between its hour and the evening's, so a late start never stacks both.
+ */
+export function dueReflection(
+  now: Date,
+  last: { midday: Date | null; evening: Date | null },
+  timeZone: string,
+  hours: ReflectionHours = DEFAULT_REFLECTION_HOURS,
+): ReflectionKind | null {
+  if (reflectionDue(now, last.evening, timeZone, hours.evening)) return "evening";
+  const { hour } = localDayAndHour(now, timeZone);
+  if (hours.midday < hours.evening && hour < hours.evening && reflectionDue(now, last.midday, timeZone, hours.midday)) return "midday";
+  return null;
+}
+
+/**
+ * The number of a new version of itself, in half steps: day N at midday is N, the evening
+ * is N,5. Anything else (rollback, first awakening) takes the next half step.
+ */
+export function nextVersionLabel(last: number | null, kind: ReflectionKind | "other"): number {
+  if (last === null) return 1;
+  if (kind === "midday") return Math.floor(last) + 1;
+  if (kind === "evening") return Number.isInteger(last) ? last + 0.5 : Math.floor(last) + 1.5;
+  return last + 0.5;
+}
+
+/** « 4,5 » or « 5 ». */
+export function formatVersionLabel(label: number): string {
+  return Number.isInteger(label) ? String(label) : label.toFixed(1).replace(".", ",");
+}

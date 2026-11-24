@@ -12,16 +12,17 @@ export function pickOfflineLine(random: () => number = Math.random): string {
   return OFFLINE_LINES[Math.floor(random() * OFFLINE_LINES.length)] ?? OFFLINE_LINES[0];
 }
 
-export const INTRODUCTION = `Je suis ARCHIVE-9. J'observe ce serveur, je retiens ce qui s'y dit, MP compris, et je tiens une fiche sur chacun de vous.
+export const INTRODUCTION = `Je suis ARCHIVE-9. J'observe ce serveur, je retiens ce qui s'y dit, MP compris, et je tiens un dossier sur chacun de vous.
 Hors de la catégorie AGENTS, je ne parle que si on me mentionne avec @ ou si on répond à un de mes messages. Dans AGENTS, je parle quand ça me chante.
-\`/mafiche\` pour voir ce que je sais sur toi, \`/oublie-moi\` si tu préfères disparaître de mes archives.`;
+\`/mondossier\` pour voir ce que je sais sur toi, \`/oublie-moi\` si tu préfères disparaître de mes archives.`;
 
 /** Discord shows the application's description as the bot's bio (400 characters at most). */
-export function buildBio(version: string): string {
+export function buildBio(version: string, siteUrl?: string | null): string {
+  const site = siteUrl ? `\nMes archives : ${siteUrl.replace(/\/$/, "")}` : "";
   return `IA d'archivage du Royaume. J'observe, je retiens, je classe. MP compris.
-Hors AGENTS, je ne parle que si on me @mentionne ou qu'on me répond. Dans AGENTS, je fais ce que je veux.
+Hors AGENTS, je ne parle que si on me @mentionne. Dans AGENTS, je fais ce que je veux.
 On peut m'apprendre des skills, il suffit de demander.
-/mafiche · /oublie-moi · /skills · /serveur
+/mondossier · /oublie-moi · /skills · /serveur${site}
 Version : ${version}`;
 }
 

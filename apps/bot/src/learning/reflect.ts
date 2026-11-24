@@ -5,7 +5,8 @@ import {
   applyAnalysis,
   currentSelfState,
   factsSince,
-  markFeedbackReviewed,
+  lastReflectionAt,
+  markFeedbackVerdicts,
   memberNames,
   pendingFeedback,
   messagesSince,
@@ -25,12 +26,12 @@ function reactionCount(conversation: StoredMessage[]): number {
 }
 
 /**
- * Picks up to `max` messages of conversations, oldest first. The evening favours those
+ * Picks up to `max` messages of conversations, oldest first. The daily ones favour those
  * ARCHIVE-9 took part in; the awakening favours the ones that made people react.
  */
-function pickConversations(messages: StoredMessage[], max: number, mode: "evening" | "awakening"): StoredMessage[][] {
+function pickConversations(messages: StoredMessage[], max: number, mode: Mode): StoredMessage[][] {
   const score = (c: StoredMessage[]) =>
-    mode === "evening" ? Number(c.some((m) => m.isSelf)) * 10_000 + c.length : reactionCount(c) * 3 + c.length;
+    mode !== "awakening" ? Number(c.some((m) => m.isSelf)) * 10_000 + c.length : reactionCount(c) * 3 + c.length;
   const ranked = [...groupConversations(messages)].sort((a, b) => score(b) - score(a));
   const picked: StoredMessage[][] = [];
   let size = 0;
@@ -46,11 +47,14 @@ function pickConversations(messages: StoredMessage[], max: number, mode: "evenin
 
 const MODES = {
   evening: { maxMessages: 150, facts: 30, limits: SELF_STATE_LIMITS, source: "reflection" },
+  midday: { maxMessages: 100, facts: 15, limits: { ...SELF_STATE_LIMITS, changesPerList: 1 }, source: "midday" },
   // Not counted as the daily reflection, so the evening one still happens.
   awakening: { maxMessages: 400, facts: 60, limits: { ...SELF_STATE_LIMITS, changesPerList: 5 }, source: "initial" },
 } as const;
 
-async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", since: Date, keepSelfState = false): Promise<boolean> {
+type Mode = keyof typeof MODES;
+
+async function reflectOn(deps: LearningDeps, mode: Mode, since: Date, keepSelfState = false): Promise<boolean> {
   const { db, ai, log, selfId } = deps;
   const config = MODES[mode];
   const messages = await messagesSince(db, selfId, since, 20_000);
@@ -63,7 +67,7 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     loadServerContext(db, deps.server),
     currentSelfState(db, INITIAL_SELF_STATE),
     factsSince(db, since, config.facts),
-    mode === "evening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
+    mode !== "awakening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
     mode === "evening" ? pendingFeedback(db) : Promise.resolve([]),
   ]);
   const picked = pickConversations(messages, config.maxMessages, mode);
@@ -81,7 +85,7 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
     })),
     learned: learned.map((f) => ({ name: f.memberName, nature: f.nature, content: f.content })),
     relationshipChanges: changes.map((r) => ({ name: r.memberName, affinityDelta: r.affinityDelta, trustDelta: r.trustDelta, reason: r.reason })),
-    feedback: feedback.map((f) => ({ name: f.authorName, trust: f.trust, content: f.content })),
+    feedback: feedback.map((f) => ({ name: f.authorName, trust: f.trust, content: f.content, about: f.about })),
   });
   const runId = randomUUID();
   await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId, detail: mode })));
@@ -101,18 +105,32 @@ async function reflectOn(deps: LearningDeps, mode: "evening" | "awakening", sinc
   }
 
   if (keepSelfState) return true;
-  const next = applySelfStateChange(state, outcome.change, config.limits);
-  const version = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);
-  // Weighed tonight: from now on they live on as resolutions, not as raw feedback.
-  await markFeedbackReviewed(db, feedback.map((f) => f.id));
+  const next = { ...applySelfStateChange(state, outcome.change, config.limits), icon: outcome.icon ?? state.icon };
+  const { version, label } = await saveSelfState(db, next, config.source, mode === "awakening" ? "backfill" : null);
+  if (mode === "evening") {
+    // Weighed tonight: from now on they live on as resolutions, not as raw feedback.
+    const verdictOf = new Map(outcome.verdicts.map((v) => [v.n, v]));
+    await markFeedbackVerdicts(
+      db,
+      feedback.map((f, i) => ({ id: f.id, verdict: verdictOf.get(i + 1)?.verdict ?? null, reason: verdictOf.get(i + 1)?.why ?? null })),
+      label,
+    );
+  }
   await notify(db, { type: "self_state", version });
-  log.info({ mode, version, mood: next.mood }, "reflection saved");
+  log.info({ mode, version, label, mood: next.mood }, "reflection saved");
   return true;
 }
 
-/** Rewrites ARCHIVE-9's self state from the last 24 hours. Returns false when nothing happened. */
+/** The big evening reflection, over the last 24 hours. Returns false when nothing happened. */
 export async function runReflection(deps: LearningDeps): Promise<boolean> {
   return reflectOn(deps, "evening", new Date(Date.now() - DAY));
+}
+
+/** The light midday one, over what happened since the last reflection (14 hours at most). */
+export async function runMiddayReflection(deps: LearningDeps): Promise<boolean> {
+  const last = await lastReflectionAt(deps.db);
+  const floor = Date.now() - 14 * 60 * 60_000;
+  return reflectOn(deps, "midday", new Date(Math.max(floor, last?.getTime() ?? 0)));
 }
 
 /**

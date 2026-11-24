@@ -233,6 +233,9 @@ describe("bio", () => {
     const bio = buildBio("Zérum (49b68ca)");
     expect(bio.length).toBeLessThanOrEqual(400);
     expect(bio.endsWith("Version : Zérum (49b68ca)")).toBe(true);
+    const withSite = buildBio("Zérum (49b68ca)", "https://archives.example.fr/");
+    expect(withSite).toContain("Mes archives : https://archives.example.fr\n");
+    expect(withSite.length).toBeLessThanOrEqual(400);
   });
 });
 

@@ -15,7 +15,7 @@ export type Routes = Record<AiTask, ModelRef[]>;
 interface CallResult {
   totalUsage: LanguageModelUsage;
   providerMetadata?: Record<string, unknown> | undefined;
-  response: { headers?: Record<string, string> | undefined };
+  response: { headers?: Record<string, string> | undefined; modelId?: string | undefined };
 }
 
 export type GenerateOutcome<R> =
@@ -27,6 +27,8 @@ export interface GenerateOptions {
   estimatedTokens?: number;
   /** Returns false when the result is unusable (e.g. invalid output) to try the next model. */
   accept?: (result: CallResult) => boolean;
+  /** Why a rejected result was rejected, kept with the error. */
+  explain?: (result: CallResult) => string;
   /** Only free models: the daily budget for this task is spent. */
   freeOnly?: boolean;
 }
@@ -74,7 +76,8 @@ export class AiRuntime {
         this.tracker.recordHeaders(ref.id, result.response.headers);
         const fallbackReason = index > 0 ? firstProblem : null;
         if (options.accept && !options.accept(result)) {
-          usage.push({ ...usageFromResult(task, ref, result, this.now() - startedAt, fallbackReason), status: "error", error: "rejected output" });
+          const why = options.explain?.(result);
+          usage.push({ ...usageFromResult(task, ref, result, this.now() - startedAt, fallbackReason), status: "error", error: why ? `rejected output: ${why}` : "rejected output" });
           firstProblem ??= `${ref.id} invalid_output`;
           continue;
         }

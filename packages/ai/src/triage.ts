@@ -22,6 +22,8 @@ export interface TriageInput {
 
 export interface TriageOutcome {
   decision: TriageDecision | null;
+  /** How the model reasoned, when it says so. */
+  reasoning: string | null;
   ref: ModelRef | null;
   usage: UsageRecord[];
 }
@@ -75,6 +77,7 @@ export async function triage(ai: AiRuntime, input: TriageInput): Promise<TriageO
       accept: (result) => readDecision(result) !== null,
     },
   );
-  if (!outcome.ok) return { decision: null, ref: null, usage: outcome.usage };
-  return { decision: readDecision(outcome.result), ref: outcome.ref, usage: outcome.usage };
+  if (!outcome.ok) return { decision: null, reasoning: null, ref: null, usage: outcome.usage };
+  const reasoning = outcome.result.steps.at(-1)?.reasoningText?.trim();
+  return { decision: readDecision(outcome.result), reasoning: reasoning ? reasoning.slice(0, 3_000) : null, ref: outcome.ref, usage: outcome.usage };
 }

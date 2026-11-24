@@ -16,6 +16,17 @@ export async function overHourlyLimit(db: ToolContext["db"], tool: ControlledAct
 
 export const reasonFor = (username: string) => `Demandé par ${username} via ARCHIVE-9`;
 
+/** The message under which the requester confirms: what, the exact requests, who may click. */
+export function confirmationText(plan: { summary: string; requests: string[] }, requesterId: string): string {
+  const minutes = String(CONFIRMATION_MS / 60_000);
+  const head = `**Confirmation** · ${plan.summary} ?`;
+  const foot = `-# Seul·e <@${requesterId}> peut valider, pendant ${minutes} min. Rien n'est fait avant.`;
+  const room = 2000 - head.length - foot.length - 20;
+  let lines = plan.requests.join("\n");
+  if (lines.length > room) lines = `${lines.slice(0, room - 1)}…`;
+  return `${head}\n\`\`\`http\n${lines}\n\`\`\`\n${foot}`;
+}
+
 export function confirmationButtons(actionId: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(`confirm:${actionId}`).setLabel("Confirmer").setStyle(ButtonStyle.Success),
@@ -28,7 +39,7 @@ export function createActionTools(ctx: ToolContext) {
 
   /**
    * Shared path of every controlled action: who asks, hourly limit, the checks of the plan,
-   * then either it runs (inside AGENTS) or a confirmation button is posted (rest of the server).
+   * then the full plan with a confirmation button. Nothing runs before the requester clicks.
    */
   async function request(tool: ControlledAction, params: Record<string, unknown>) {
     const log = (status: "done" | "refused" | "failed" | "pending", extra: { refusalReason?: string; previousValue?: Record<string, unknown> } = {}) =>
@@ -49,18 +60,9 @@ export function createActionTools(ctx: ToolContext) {
     try {
       const plan = await planAction({ db: ctx.db, selfId: ctx.selfId, agentsCategoryId: ctx.agentsCategoryId }, guild, requester, tool, params);
       if (typeof plan === "string") return await refuse(plan);
-
-      if (plan.scope === "agents") {
-        const { result, previous } = await plan.run(reasonFor(ctx.target.author.username));
-        await log("done", { previousValue: previous });
-        ctx.log.info({ tool, params, by: ctx.target.author.id }, "controlled action");
-        return { ok: true, ...result };
-      }
-
       const actionId = await log("pending");
-      const minutes = String(CONFIRMATION_MS / 60_000);
       const sent = await ctx.target.reply({
-        content: `**Confirmation** · ${plan.summary} ?\n-# Seul·e <@${ctx.target.author.id}> peut valider, pendant ${minutes} min.`,
+        content: confirmationText(plan, ctx.target.author.id),
         components: [confirmationButtons(actionId)],
         allowedMentions: { parse: [] },
       });
@@ -68,7 +70,7 @@ export function createActionTools(ctx: ToolContext) {
       return {
         ok: true,
         pending: true,
-        note: "Un bouton « Confirmer » est affiché : l'action se fera seulement quand la personne cliquera. Ne dis pas que c'est fait.",
+        note: "Le plan est affiché avec un bouton « Confirmer » : l'action se fera seulement quand la personne cliquera. Ne dis pas que c'est fait.",
       };
     } catch (error) {
       await log("failed", { refusalReason: errorText(error) }).catch(() => undefined);
@@ -110,6 +112,26 @@ export function createActionTools(ctx: ToolContext) {
         give: z.boolean().describe("true pour donner, false pour retirer"),
       }),
       execute: ({ memberId, role, give }) => request("setRole", { memberId, role, give }),
+    }),
+
+    createThread: tool({
+      description: `Ouvre un fil de discussion sur le message cible, avec un premier message optionnel dedans. ${onRequest}`,
+      inputSchema: z.object({
+        name: z.string().min(1).max(100),
+        message: z.string().min(1).max(2000).optional().describe("premier message dans le fil"),
+      }),
+      execute: ({ name, message }) => request("createThread", { channelId: ctx.target.channelId, messageId: ctx.target.id, name, message: message ?? "" }),
+    }),
+
+    createPoll: tool({
+      description: `Lance un sondage Discord dans le salon. ${onRequest}`,
+      inputSchema: z.object({
+        question: z.string().min(1).max(300),
+        answers: z.array(z.string().min(1).max(55)).min(2).max(10),
+        hours: z.number().int().min(1).max(168).default(24).describe("durée en heures"),
+        multiple: z.boolean().default(false).describe("plusieurs réponses possibles"),
+      }),
+      execute: ({ question, answers, hours, multiple }) => request("createPoll", { channelId: ctx.target.channelId, question, answers, hours, multiple }),
     }),
 
     pinMessage: tool({

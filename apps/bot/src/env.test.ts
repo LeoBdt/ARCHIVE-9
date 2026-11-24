@@ -20,12 +20,13 @@ describe("parseEnv", () => {
       "openrouter:deepseek/deepseek-v4.1-flash",
       "groq:openai/gpt-oss-120b",
     ]);
-    expect(env).toMatchObject({ ANALYSIS_DAILY_BUDGET_USD: 0.1, REFLECTION_HOUR: 23, MESSAGE_RETENTION_DAYS: 30 });
+    expect(env).toMatchObject({ ANALYSIS_DAILY_BUDGET_USD: 0.1, MESSAGE_RETENTION_DAYS: 30, GITHUB_REPO: "LeoBdt/ARCHIVE-9" });
+    expect(env.SITE_URL).toBeUndefined();
   });
 
   it("validates the learning settings", () => {
-    expect(parseEnv({ ...base, REFLECTION_HOUR: "4", ANALYSIS_DAILY_BUDGET_USD: "0.5" })).toMatchObject({ REFLECTION_HOUR: 4, ANALYSIS_DAILY_BUDGET_USD: 0.5 });
-    expect(() => parseEnv({ ...base, REFLECTION_HOUR: "24" })).toThrow(/REFLECTION_HOUR/);
+    expect(parseEnv({ ...base, SITE_URL: "https://archives.example.org", ANALYSIS_DAILY_BUDGET_USD: "0.5" })).toMatchObject({ SITE_URL: "https://archives.example.org", ANALYSIS_DAILY_BUDGET_USD: 0.5 });
+    expect(() => parseEnv({ ...base, SITE_URL: "pas une adresse" })).toThrow(/SITE_URL/);
   });
 
   it("reads the AGENTS category and the reply budget", () => {

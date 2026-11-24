@@ -118,14 +118,14 @@ describe("controlled actions", () => {
     expect(ctx.send.sentMessageIds).toEqual(["confirm-msg"]);
   });
 
-  it("acts right away inside AGENTS", async () => {
-    const channel = fakeChannel("c1", AGENTS);
+  it("waits for a confirmation even inside AGENTS, showing the exact request", async () => {
+    const channel = { ...fakeChannel("c1", AGENTS), permissionsFor: () => ({ has: () => true }) };
     const { tools, reply } = setup({ channel, requester: fakeMember("req") });
     const result = await tools.renameChannel.execute({ name: "Labo Des Bots" }, opts);
-    expect(result).toMatchObject({ ok: true, after: "labo-des-bots" });
-    expect(channel.setName).toHaveBeenCalledWith("labo-des-bots", expect.any(String));
-    expect(reply).not.toHaveBeenCalled();
-    expect(db.logAction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ status: "done", previousValue: { channelId: "c1", name: "salon-c1" } }));
+    expect(result).toMatchObject({ ok: true, pending: true });
+    expect(channel.setName).not.toHaveBeenCalled();
+    expect(JSON.stringify(reply.mock.calls)).toContain('PATCH /channels/c1 {\\"name\\":\\"labo-des-bots\\"}');
+    expect(db.logAction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ status: "pending" }));
   });
 
   it("needs the requester's own Discord permission outside AGENTS", async () => {
@@ -275,7 +275,7 @@ describe("findChannel", () => {
 describe("commands", () => {
   it("lists skills with their author and use count", () => {
     const text = formatSkills([
-      { id: "s", name: "Pizza", kind: "triggered", triggers: ["pizza", "ananas"], rule: "L'ananas est un crime.", authorId: "1", authorName: "tom", usageCount: 3, expiresAt: null, createdAt: new Date() },
+      { id: "s", name: "Pizza", kind: "triggered", triggers: ["pizza", "ananas"], rule: "L'ananas est un crime.", authorId: "1", authorName: "tom", usageCount: 3, expiresAt: null, channelId: null, memberId: null, createdAt: new Date() },
     ]);
     expect(text).toContain("**Skills** · 1/200");
     expect(text).toContain("- **Pizza** · si « pizza, ananas » · par <@1> · 3 fois\n  L'ananas est un crime.");

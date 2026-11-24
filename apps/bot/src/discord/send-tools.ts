@@ -1,3 +1,4 @@
+import { cleanOutgoing } from "@archive-9/core";
 import { tool } from "ai";
 import type { Message, SendableChannels } from "discord.js";
 import { z } from "zod";
@@ -17,7 +18,7 @@ export interface SendState {
 export function createSendTools(channel: SendableChannels, target: Message, state: SendState, suffix?: string) {
   const finalise = (content: string) => {
     const tail = state.sentMessageIds.length === 0 && suffix ? `\n${suffix}` : "";
-    return `${content.trim().slice(0, MAX_LENGTH - tail.length)}${tail}`;
+    return `${cleanOutgoing(content).slice(0, MAX_LENGTH - tail.length)}${tail}`;
   };
 
   return {
@@ -45,7 +46,7 @@ export function createSendTools(channel: SendableChannels, target: Message, stat
       execute: async ({ emoji }) => {
         await target.react(emoji);
         state.reacted = true;
-        return { reacted: true };
+        return { reacted: true, emoji };
       },
     }),
     staySilent: tool({

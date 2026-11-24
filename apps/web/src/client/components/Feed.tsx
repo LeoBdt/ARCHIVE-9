@@ -5,6 +5,7 @@ import { clock, FEED_KINDS } from "../format.ts";
 export function Feed({ items, timeZone, journalLink = true }: { items: Home["feed"]; timeZone: string; journalLink?: boolean }) {
   return (
     <section aria-labelledby="live" className="live px-dim">
+      {/* As tall as the dossiers next to it: the list stops where they stop. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h2 id="live">En direct</h2>
         <span style={{ fontSize: 12, color: "var(--red)", display: "flex", alignItems: "center", gap: 6 }}>
@@ -15,7 +16,7 @@ export function Feed({ items, timeZone, journalLink = true }: { items: Home["fee
       {items.length === 0 ? (
         <p className="empty">Rien pour l'instant. J'écoute.</p>
       ) : (
-        <ol>
+        <ol className="live-list">
           {items.map((item, i) => {
             const kind = FEED_KINDS[item.kind];
             return (

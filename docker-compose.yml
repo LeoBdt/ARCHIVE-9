@@ -58,8 +58,8 @@ services:
       REPLY_DAILY_BUDGET_USD:
       AGENTS_CATEGORY_ID:
       WEB_DB_PASSWORD: ${WEB_DB_PASSWORD:-}
-      REFLECTION_HOUR:
       MESSAGE_RETENTION_DAYS:
+      SITE_URL: ${SITE_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     mem_limit: 384m
     networks: [db, egress]
@@ -79,6 +79,7 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      REPLY_DAILY_BUDGET_USD:
       BOT_TIMEZONE: ${BOT_TIMEZONE:-Europe/Paris}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     # No published port: only the tunnel reaches it.

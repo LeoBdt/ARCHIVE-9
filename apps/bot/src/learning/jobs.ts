@@ -1,11 +1,13 @@
-import { ANALYSIS_TIMING, reflectionDue } from "@archive-9/core";
-import { aiCostSince, lastReflectionAt, pendingStats, purgeDecisions, purgeMessages, summariesToRefresh, withAdvisoryLock, type SqlClient } from "@archive-9/db";
+import { ANALYSIS_TIMING, dueReflection, type ReflectionHours } from "@archive-9/core";
+import { aiCostSince, lastReflections, pendingStats, purgeDecisions, purgeMessages, summariesToRefresh, withAdvisoryLock, type SqlClient } from "@archive-9/db";
 import { refreshSummaries, runAnalysis, type AnalysisReport, type LearningDeps } from "./analyse.ts";
-import { runReflection } from "./reflect.ts";
+import { runMiddayReflection, runReflection } from "./reflect.ts";
+import { tidyDrawers } from "./tidy.ts";
 
 export interface JobsConfig {
   analysisDailyBudgetUsd: number;
-  reflectionHour: number;
+  /** Read at each tick: the site can change them. */
+  reflectionHours: () => ReflectionHours;
   retentionDays: number;
 }
 
@@ -65,16 +67,21 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
       }
 
       const stats = await pendingStats(db, selfId);
-      const reflectNow =
-        now.getTime() >= reflectionRetryAt && reflectionDue(now, await lastReflectionAt(db), deps.timezone, config.reflectionHour);
-      // Finished conversations are analysed right away. A very active member, or the evening
+      const due = now.getTime() >= reflectionRetryAt ? dueReflection(now, await lastReflections(db), deps.timezone, config.reflectionHours()) : null;
+      // Finished conversations are analysed right away. A very active member, or a
       // reflection, also pulls in the conversations still going on.
-      if (stats.oldestAt) await analyseNow(stats.maxPerMember >= ANALYSIS_TIMING.memberThreshold || reflectNow);
+      if (stats.oldestAt) await analyseNow(stats.maxPerMember >= ANALYSIS_TIMING.memberThreshold || due !== null);
 
-      if (reflectNow) {
+      if (due) {
         try {
-          // Nothing happened today: look again in an hour.
-          if (!(await runReflection(deps))) reflectionRetryAt = now.getTime() + RETRY_MS;
+          // Nothing happened: look again in an hour.
+          const done = due === "evening" ? await runReflection(deps) : await runMiddayReflection(deps);
+          if (!done) reflectionRetryAt = now.getTime() + RETRY_MS;
+          if (done && due === "evening") {
+            await tidyDrawers(deps).catch((err: unknown) => {
+              log.warn({ err }, "drawer tidy failed");
+            });
+          }
         } catch (error) {
           reflectionRetryAt = now.getTime() + RETRY_MS;
           throw error;

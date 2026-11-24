@@ -284,7 +284,7 @@ export interface Correction {
  * Takes facts off a member's own profile. Only their current facts can go; the rest of
  * `factIds` is ignored. Returns what was removed.
  */
-export async function forgetOwnFacts(db: Database, memberId: string, factIds: string[], reason: string, source: "discord" | "site"): Promise<string[]> {
+export async function forgetOwnFacts(db: Database, memberId: string, factIds: string[], reason: string, source: "discord" | "site", by: string | null = null): Promise<string[]> {
   if (factIds.length === 0) return [];
   return db.transaction(async (tx) => {
     const removed = await tx
@@ -293,7 +293,7 @@ export async function forgetOwnFacts(db: Database, memberId: string, factIds: st
       .where(and(inArray(profileFacts.id, factIds), eq(profileFacts.memberId, memberId), isCurrent))
       .returning({ id: profileFacts.id, content: profileFacts.content });
     if (removed.length > 0) {
-      await tx.insert(factCorrections).values(removed.map((f) => ({ memberId, factId: f.id, content: f.content, reason, source })));
+      await tx.insert(factCorrections).values(removed.map((f) => ({ memberId, factId: f.id, content: f.content, reason, source, by })));
     }
     return removed.map((f) => f.content);
   });
@@ -303,7 +303,7 @@ export async function forgetOwnFacts(db: Database, memberId: string, factIds: st
  * Replaces one of a member's own facts by their version. The old one is superseded, so it
  * stays in the history; the new one counts as said by them. Null when the fact isn't theirs.
  */
-export async function correctOwnFact(db: Database, memberId: string, factId: string, newContent: string, reason: string, source: "discord" | "site") {
+export async function correctOwnFact(db: Database, memberId: string, factId: string, newContent: string, reason: string, source: "discord" | "site", by: string | null = null) {
   return db.transaction(async (tx) => {
     const [old] = await tx
       .select()
@@ -316,8 +316,8 @@ export async function correctOwnFact(db: Database, memberId: string, factId: str
       .returning({ id: profileFacts.id });
     if (!created) return null;
     await tx.update(profileFacts).set({ supersededBy: created.id, updatedAt: sql`now()` }).where(eq(profileFacts.id, old.id));
-    await tx.insert(factCorrections).values({ memberId, factId: old.id, content: old.content, newContent, reason, source });
-    return { before: old.content, after: newContent };
+    await tx.insert(factCorrections).values({ memberId, factId: old.id, content: old.content, newContent, reason, source, by });
+    return { before: old.content, after: newContent, newId: created.id, category: old.category };
   });
 }
 

@@ -11,7 +11,33 @@ export const FACT_CATEGORIES = [
   "writing_style",
   "other",
 ] as const;
-export type FactCategory = (typeof FACT_CATEGORIES)[number];
+/** The drawers every server starts with. ARCHIVE-9 can add its own, so a category is any key. */
+export type BaseCategory = (typeof FACT_CATEGORIES)[number];
+export type FactCategory = string;
+
+/** Label and colour of the starting drawers, as the site shows them. */
+export const BASE_CATEGORY_INFO: Record<BaseCategory, { label: string; color: string }> = {
+  identity: { label: "Identité", color: "#e9e9ee" },
+  tastes: { label: "Goûts", color: "#ff9f5a" },
+  games: { label: "Jeux", color: "#7cc4ff" },
+  humor: { label: "Humour", color: "#f5c04a" },
+  habits: { label: "Habitudes", color: "#5ad1c9" },
+  projects: { label: "Projets", color: "#6ee7a8" },
+  relationships: { label: "Liens", color: "#ff4757" },
+  anecdotes: { label: "Anecdotes", color: "#ff7ab6" },
+  in_jokes: { label: "Blagues internes", color: "#c4a0ff" },
+  writing_style: { label: "Façon d'écrire", color: "#a0b4ff" },
+  other: { label: "Divers", color: "#b9b9c3" },
+};
+
+/** Colours given in turn to the drawers ARCHIVE-9 creates. */
+export const NEW_CATEGORY_COLORS = ["#e6a1ff", "#9be36b", "#ffcf7a", "#7ae0ff", "#ff9a8a", "#b0f0d0", "#d6b38a", "#a3a8ff"];
+
+export interface CategoryInfo {
+  key: string;
+  label: string;
+  color: string;
+}
 
 export const FACT_NATURES = ["fact", "reported", "probable_joke", "inference"] as const;
 export type FactNature = (typeof FACT_NATURES)[number];
@@ -28,7 +54,7 @@ export type ActionTier = (typeof ACTION_TIERS)[number];
 export const ACTION_STATUSES = ["done", "refused", "failed", "undone", "pending", "cancelled"] as const;
 export type ActionStatus = (typeof ACTION_STATUSES)[number];
 
-export const SELF_STATE_SOURCES = ["initial", "reflection", "rollback"] as const;
+export const SELF_STATE_SOURCES = ["initial", "reflection", "rollback", "midday"] as const;
 export type SelfStateSource = (typeof SELF_STATE_SOURCES)[number];
 
 export const SKILL_KINDS = ["triggered", "permanent"] as const;
@@ -44,7 +70,12 @@ export interface SelfState {
   notes: string;
   /** What it decided to change in how it behaves, after members' feedback. */
   resolutions?: string[];
+  /** The face it shows on the site, picked by the reflection. */
+  icon?: MoodIcon;
 }
+
+export const MOOD_ICONS = ["neutral", "amused", "curious", "tired", "annoyed", "glitch"] as const;
+export type MoodIcon = (typeof MOOD_ICONS)[number];
 
 export interface NameHistoryEntry {
   name: string;

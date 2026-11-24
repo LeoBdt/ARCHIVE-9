@@ -18,6 +18,10 @@ export interface SkillDraft {
   kind: SkillKind;
   triggers: string[];
   rule: string;
+  /** Only in this channel (or its threads), when set. */
+  channelId?: string | null;
+  /** Only when this member is the one talking, when set. */
+  memberId?: string | null;
 }
 
 export interface ActiveSkill extends SkillDraft {
@@ -67,7 +71,10 @@ export function checkSkillDraft(input: SkillDraft): DraftCheck {
   }
   const forbidden = forbiddenReason(`${name}\n${rule}`);
   if (forbidden) return { ok: false, reason: forbidden };
-  return { ok: true, draft: { name, kind: input.kind, rule, triggers: input.kind === "triggered" ? triggers : [] } };
+  return {
+    ok: true,
+    draft: { name, kind: input.kind, rule, triggers: input.kind === "triggered" ? triggers : [], channelId: input.channelId ?? null, memberId: input.memberId ?? null },
+  };
 }
 
 /** Whole-word match, ignoring case and accents: "pizza" fires on "Une PIZZA ?" but not on "pizzaiolo". */
@@ -79,10 +86,24 @@ export function skillMatches(triggers: readonly string[], content: string): bool
   });
 }
 
+/** Where a reply happens, for scoped skills. */
+export interface SkillPlace {
+  channelId: string;
+  parentId?: string | null;
+  authorId: string;
+}
+
+function inScope(skill: ActiveSkill, place: SkillPlace | undefined): boolean {
+  if (skill.channelId && skill.channelId !== place?.channelId && skill.channelId !== place?.parentId) return false;
+  if (skill.memberId && skill.memberId !== place?.authorId) return false;
+  return true;
+}
+
 /** Skills for one reply: every permanent one, then the triggered ones the message fires, most used first. */
-export function selectSkills<S extends ActiveSkill>(skills: readonly S[], content: string): S[] {
-  const permanent = skills.filter((s) => s.kind === "permanent").slice(0, SKILL_LIMITS.permanent);
-  const fired = skills
+export function selectSkills<S extends ActiveSkill>(skills: readonly S[], content: string, place?: SkillPlace): S[] {
+  const scoped = skills.filter((s) => inScope(s, place));
+  const permanent = scoped.filter((s) => s.kind === "permanent").slice(0, SKILL_LIMITS.permanent);
+  const fired = scoped
     .filter((s) => s.kind === "triggered" && skillMatches(s.triggers, content))
     .sort((a, b) => b.usageCount - a.usageCount)
     .slice(0, SKILL_LIMITS.injected);

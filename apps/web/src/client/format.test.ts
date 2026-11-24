@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { affinitySegments, avatarColor, formatCount, greeting, initials } from "./format.ts";
+import { affinitySegments, avatarColor, avatarUrl, formatCount, greeting, initials, tokens, usd, versionText, when } from "./format.ts";
 
 describe("client helpers", () => {
   it("builds initials", () => {
@@ -24,5 +24,21 @@ describe("client helpers", () => {
 
   it("formats counts with plain spaces", () => {
     expect(formatCount(5899)).toBe("5 899");
+  });
+
+  it("says when, plainly", () => {
+    const now = new Date("2026-11-24T13:00:00Z");
+    expect(when("2026-11-24T12:32:00Z", now)).toBe("aujourd'hui 13:32");
+    expect(when("2026-11-23T23:42:00Z", now)).toBe("aujourd'hui 00:42");
+    expect(when("2026-11-23T10:00:00Z", now)).toBe("hier 11:00");
+    expect(when("2026-11-20T22:10:00Z", now)).toBe("le 20/11 à 23:10");
+  });
+
+  it("formats money, tokens, versions and avatars", () => {
+    expect([0.0004, 0.42, 3.9].map(usd)).toEqual(["0,0004 $", "0,420 $", "3,90 $"]);
+    expect([912, 6412, 21_400_000].map(tokens)).toEqual(["912", "6,4 k", "21,4 M"]);
+    expect([4.5, 5].map(versionText)).toEqual(["4,5", "5"]);
+    expect(avatarUrl("1", "abc", 16)).toBe("https://cdn.discordapp.com/avatars/1/abc.png?size=16");
+    expect(avatarUrl("1", null)).toBeNull();
   });
 });

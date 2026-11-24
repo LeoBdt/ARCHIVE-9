@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate } from "react-router";
 import { signOut, type Viewer } from "../api.ts";
-import { avatarColor, initials } from "../format.ts";
+import { Avatar } from "./Avatar.tsx";
 
 const LINKS = [
   { to: "/", label: "Noyau" },
   { to: "/archives", label: "Archives" },
   { to: "/relations", label: "Relations" },
-  { to: "/memoire", label: "Mémoire" },
+  { to: "/esprit", label: "Esprit" },
   { to: "/skills", label: "Skills" },
   { to: "/journal", label: "Journal" },
-  { to: "/coulisses", label: "Coulisses" },
+  { to: "/systeme", label: "Système" },
 ];
 
 function SearchBox({ className, id }: { className: string; id: string }) {
@@ -49,7 +49,7 @@ function SearchBox({ className, id }: { className: string; id: string }) {
 
 export function Header({ viewer }: { viewer: Viewer }) {
   const [open, setOpen] = useState(false);
-  const links = viewer.isAdmin ? [...LINKS, { to: "/reglages", label: "Réglages · admin" }] : LINKS;
+  const links = viewer.isAdmin ? [...LINKS, { to: "/reglages", label: "Réglages" }] : LINKS;
   return (
     <>
       <header className="top">
@@ -65,9 +65,7 @@ export function Header({ viewer }: { viewer: Viewer }) {
         </nav>
         <SearchBox className="search-desktop" id="search" />
         <NavLink to={`/archives/${viewer.id}`} className="me px-dim" title="Ton dossier">
-          <span className="avatar" style={{ width: 28, height: 28, background: avatarColor(viewer.id), fontSize: 12 }}>
-            {initials(viewer.name)}
-          </span>
+          <Avatar id={viewer.id} name={viewer.name} hash={viewer.avatar} size={28} />
           {viewer.name}
         </NavLink>
         <button
@@ -98,7 +96,7 @@ export function Header({ viewer }: { viewer: Viewer }) {
           Noyau
         </NavLink>
         <NavLink to="/archives">Archives</NavLink>
-        <NavLink to="/skills">Skills</NavLink>
+        <NavLink to="/journal">Journal</NavLink>
         <button
           type="button"
           aria-expanded={open}
