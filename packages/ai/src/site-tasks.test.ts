@@ -8,7 +8,7 @@ import { buildDossierTidyPrompt, checkDossierTidy, planDossierTidy } from "./tid
 import { mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 
 const route = parseRoute("openrouter:main");
-const routes: Routes = { triage: route, reply: route, analysis: route, reflection: route, vision: route, embedding: route };
+const routes: Routes = { triage: route, reply: route, analysis: route, reflection: route, vision: route, embedding: route, voice: route };
 const runtime = (output: unknown) => new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text(JSON.stringify(output)))) }));
 const broken = () => new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text("pas du JSON"))) }));
 

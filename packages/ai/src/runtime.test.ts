@@ -6,7 +6,7 @@ import { AiRuntime, isPaidModel, type Routes } from "./runtime.ts";
 import { httpError, mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 
 const chain = parseRoute("openrouter:primary,groq:backup");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain, voice: chain };
 
 function run(ai: AiRuntime, accept?: (r: { response: unknown }) => boolean) {
   return ai.generate(
