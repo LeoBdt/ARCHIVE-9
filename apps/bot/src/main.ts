@@ -16,7 +16,6 @@ import { startRequestWorker } from "./requests.ts";
 import { SettingsStore } from "./settings.ts";
 import { showFace } from "./discord/avatar.ts";
 import { describePending } from "./vision.ts";
-import { VoiceManager } from "./voice/session.ts";
 
 const env = parseEnv();
 const log = createLogger(env.LOG_LEVEL);
@@ -62,7 +61,6 @@ const discord = new Client({
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   allowedMentions: { parse: ["users"], repliedUser: true },
@@ -72,7 +70,6 @@ const ingest = new Ingest({ db, settings, knownAiBotIds, agentsCategoryId: env.A
 const presence = new Presence({ db, ai, log, settings, timezone: env.BOT_TIMEZONE, version });
 const server = { id: env.DISCORD_GUILD_ID };
 let pipeline: Pipeline | undefined;
-let voice: VoiceManager | undefined;
 let stopJobs: (() => void) | undefined;
 let stopRequests: (() => void) | undefined;
 
@@ -83,9 +80,6 @@ const safely = (label: string, task: () => Promise<unknown>) => {
 };
 
 discord.once(Events.ClientReady, (client) => {
-  voice = env.PIPER_URL
-    ? new VoiceManager({ db, ai, log, selfId: client.user.id, timezone: env.BOT_TIMEZONE, hearing: { groqApiKey: env.GROQ_API_KEY }, piperUrl: env.PIPER_URL, dailyBudgetUsd: env.VOICE_DAILY_BUDGET_USD, version })
-    : undefined;
   pipeline = new Pipeline({
     db,
     ai,
@@ -104,7 +98,6 @@ discord.once(Events.ClientReady, (client) => {
     siteUrl: env.SITE_URL ?? null,
     vision,
     embedding,
-    voice,
   });
   presence.start(client);
   safely("bio", async () => {
@@ -202,11 +195,6 @@ discord.on(Events.GuildMemberRemove, (m) => {
   if (m.guild.id === env.DISCORD_GUILD_ID) safely("member remove", () => setInGuild(db, memberInput(m), false));
 });
 
-// Left alone in the voice channel: it goes too.
-discord.on(Events.VoiceStateUpdate, () => {
-  voice?.checkAlone();
-});
-
 discord.on(Events.GuildCreate, (guild) => {
   if (guild.id === env.DISCORD_GUILD_ID) safely("command registration", () => registerCommands(guild));
 });
@@ -248,7 +236,6 @@ await discord.login(env.DISCORD_TOKEN);
 async function shutdown(signal: string) {
   log.info({ signal }, "shutting down");
   pipeline?.stop();
-  voice?.stop();
   presence.stop();
   stopJobs?.();
   stopRequests?.();

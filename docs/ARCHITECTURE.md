@@ -14,8 +14,7 @@ flowchart LR
 | Service | Image | `mem_limit` | Role |
 |---|---|---|---|
 | `postgres` | `archive-9-postgres:18`, built on the host from `docker/postgres.Dockerfile` (`postgres:18-alpine` with pgvector) | 1 GB | database, on an internal network with no internet access |
-| `bot` | `ghcr.io/<owner>/archive-9-bot` | 512 MB | Discord process |
-| `piper` | `archive-9-piper:1`, built on the host from `docker/piper.Dockerfile` | 384 MB | text to speech (Piper, voice `fr_FR-upmc-medium`) over HTTP, on an internal network shared with the bot only |
+| `bot` | `ghcr.io/<owner>/archive-9-bot` | 384 MB | Discord process |
 | `backup` | `postgres:18-alpine` | 64 MB | `pg_dump` at startup then every 24 h, keeps `BACKUP_KEEP_DAYS` days |
 
 Deployment is pull-based: the host checks `main` every minute, pulls the `bot` image only and runs `docker compose up -d --remove-orphans`, which recreates only what changed. Nothing on the host is reachable from the internet. `postgres` and `backup` are updated by hand.
@@ -89,7 +88,6 @@ Every reply gets the same tool set, so the definitions stay identical and cachea
 | `readChannel` | free | last messages (up to 30) of a listened channel the requester can read; a private channel is only read back in DM |
 | `findMember` | free | ID, name and summary from the member directory |
 | `searchArchives`, `readFragment`, `readDossier`, `myStats`, `howIWork` | memory | read access to the whole memory: the search engine (words and meaning), one fragment with its versions and tidy history, a whole dossier by drawer, its real numbers (counts, database size, AI costs, version and changelog, settings), and the sections of this document (copied into the image) |
-| `joinVoice`, `leaveVoice` | voice | joins the voice channel the requester is in, or leaves; only when a member asks |
 | `noteForCreator` | notebook | writes in its notebook for the owner (what it lacks, what it would change in itself), 3 a day |
 | `myFacts`, `forgetMyFacts`, `correctMyFact` | own profile | the requester's own facts only, named by identifier or rank; removal needs a reason; a correction supersedes the fact with the member's version (nature `fact`), and both go to `fact_corrections` |
 | `noteFeedback` | feedback | about ARCHIVE-9's own behaviour, 5 a day per member; see below |
@@ -141,8 +139,6 @@ Each task has an ordered chain of `provider:model`, overridable with `AI_ROUTE_*
 | `reflection` | `openrouter:deepseek/deepseek-v4.1-flash` |
 | `vision` | `openrouter:deepseek/deepseek-v4.1-flash` → `groq:meta-llama/llama-4-scout-17b-16e-instruct` |
 
-Speech recognition in voice channels goes straight to Groq (`whisper-large-v3-turbo`, French, 0.04 $ an hour of audio, 10 s billed at least per clip), recorded as the `voice` task and capped by `VOICE_DAILY_BUDGET_USD` (0.2 by default) over 24 hours.
-
 Embeddings for the search index go straight to OpenRouter's embeddings endpoint (`EMBEDDING_MODEL`, `baai/bge-m3` by default, 1024 dimensions) and are recorded as the `embedding` task.
 
 - OpenRouter requests use `data_collection: "deny"`, fp8 or better quantisation, and the upstream order from `OPENROUTER_PROVIDER_ORDER`.
@@ -151,14 +147,6 @@ Embeddings for the search index go straight to OpenRouter's embeddings endpoint 
 - `REPLY_DAILY_BUDGET_USD` (default 1) caps reply costs over 24 h. Past it, only humans who addressed ARCHIVE-9 get an answer, from free models only (Groq, OpenRouter `:free`).
 - When every model fails and the bot was addressed, it answers with a pre-written line, without AI.
 - Every call is stored in `ai_usage` with tokens, cost, upstream provider and the Discord messages it produced.
-
-### Voice
-
-- When a member asks, ARCHIVE-9 joins the voice channel they are in (one at a time) and says hello with how to talk to it. The connection uses `@discordjs/voice` with DAVE end-to-end encryption (`@snazzah/davey`) and Opus through `opusscript`.
-- Each person is heard on their own: their audio ends after 0.9 s of silence, clips under 0.6 s are dropped, longer than 30 s are cut. A clip is turned into 16 kHz mono and transcribed in French.
-- It answers a sentence that starts with its name (« archive », a close spelling, after a filler like « euh »), and the person it just answered within 25 seconds if nobody else spoke. Anyone else within those 25 seconds goes to triage, which decides whether the sentence is for it.
-- The reply is the normal one, with the voice transcript (24 lines at most) as the conversation and a note that it is read aloud: short, spoken, no markdown, emoji or links. The text is cleaned (tags become names, links « le lien ») and spoken by Piper, resampled to 48 kHz stereo for Discord. A sentence with its name heard while it is answering waits for its turn; other sentences are only kept in the transcript.
-- It leaves when asked, when no human is left in the channel, or after 15 minutes without anyone speaking. Nothing said in voice is stored: no audio, no transcript, no learning. AI usage is recorded as for text.
 
 ## Learning
 

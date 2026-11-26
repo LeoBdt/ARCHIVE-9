@@ -62,27 +62,14 @@ services:
       EMBEDDING_MODEL:
       ANALYSIS_DAILY_BUDGET_USD:
       VISION_DAILY_BUDGET_USD:
-      VOICE_DAILY_BUDGET_USD:
-      # Its voice, in the piper service below.
-      PIPER_URL: ${PIPER_URL:-http://piper:5000}
       REPLY_DAILY_BUDGET_USD:
       AGENTS_CATEGORY_ID:
       WEB_DB_PASSWORD: ${WEB_DB_PASSWORD:-}
       MESSAGE_RETENTION_DAYS:
       SITE_URL: ${SITE_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    mem_limit: 512m
-    networks: [db, egress, voice]
-
-  # ARCHIVE-9's voice: Piper with a French voice, built on the host the first time.
-  piper:
-    image: archive-9-piper:1
-    build:
-      context: .
-      dockerfile: docker/piper.Dockerfile
-    restart: unless-stopped
     mem_limit: 384m
-    networks: [voice]
+    networks: [db, egress]
 
   web:
     image: ${WEB_IMAGE:-ghcr.io/leobdt/archive-9-web:latest}
@@ -147,7 +134,5 @@ volumes:
 
 networks:
   db:
-    internal: true
-  voice:
     internal: true
   egress:
