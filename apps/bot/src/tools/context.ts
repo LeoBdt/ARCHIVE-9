@@ -4,6 +4,7 @@ import { PermissionFlagsBits, type Guild, type GuildMember, type Message, type S
 import type { SendState } from "../discord/send-tools.ts";
 import type { Logger } from "../logger.ts";
 import type { SettingsStore } from "../settings.ts";
+import type { VoiceManager } from "../voice/session.ts";
 
 /** Everything a reply's tools may touch, bound to one target message. */
 export interface ToolContext {
@@ -28,6 +29,8 @@ export interface ToolContext {
   saveUsage: (usage: UsageRecord[], detail: string) => Promise<void>;
   /** Search by meaning; absent when there is no vector index. */
   embedding?: EmbeddingConfig;
+  /** Its voice; absent when no Piper is set up. */
+  voice?: VoiceManager;
 }
 
 export type ToolResult = Record<string, unknown>;

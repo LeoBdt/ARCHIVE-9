@@ -9,7 +9,7 @@ import { buildSummaryPrompt, summarise } from "./summary.ts";
 import { mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 
 const chain = parseRoute("openrouter:main");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain, voice: chain };
 const runtime = (output: unknown) =>
   new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text(typeof output === "string" ? output : JSON.stringify(output)))) }));
 

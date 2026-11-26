@@ -63,7 +63,7 @@ const model = new MockLanguageModelV4({
 });
 
 const chain = parseRoute("openrouter:mock");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain, voice: chain };
 
 describe.skipIf(!url)("learning cycle", () => {
   let conn: ReturnType<typeof createDb>;
