@@ -71,6 +71,9 @@ export interface Category {
   color: string;
   createdBy?: string;
   createdAt?: string;
+  /** Made for this dossier only. */
+  personal?: boolean;
+  reason?: string | null;
 }
 
 export interface DossierSummary {
@@ -97,6 +100,9 @@ export interface Fact {
   reportedByName: string | null;
   source: string | null;
   sourceMessageId: string | null;
+  /** #K7QX3M, never changes. */
+  ref: string;
+  /** Its rank among the current fragments (F001…). */
   number: number;
   createdAt: string;
   corrected: { at: string; by: string | null; reason: string } | null;
@@ -380,13 +386,95 @@ export interface SettingsView {
   showFallbackTag: boolean;
   listenedChannelIds: string[];
   reflectionHours: { midday: number; evening: number };
+  tidyDryRun: boolean;
   channels: { id: string; name: string; category: string | null; isPublic?: boolean }[];
 }
 
 export interface AccessRow {
   id: string;
   name: string;
+  username: string;
   avatar: string | null;
   isAdmin: boolean;
   isOwner: boolean;
+}
+
+export interface SearchFragment {
+  id: string;
+  ref: string;
+  rank: number;
+  memberId: string;
+  memberName: string;
+  avatar: string | null;
+  category: string;
+  categoryLabel: string | null;
+  nature: FactNature;
+  confidence: number;
+  content: string;
+  createdAt: string;
+}
+
+export interface SearchMessage {
+  id: string;
+  channelId: string;
+  channelName: string | null;
+  isDm: boolean;
+  authorId: string;
+  authorName: string;
+  avatar: string | null;
+  content: string;
+  images: string[] | null;
+  createdAt: string;
+}
+
+export interface SearchView {
+  empty?: true;
+  tookMs: number;
+  people: { id: string; name: string }[];
+  fragments: SearchFragment[];
+  messages: SearchMessage[];
+  dossiers: { id: string; name: string; username: string; avatar: string | null; tagline: string | null; facts: number }[];
+  skills: { id: string; name: string; kind: string; rule: string; authorName: string | null; createdAt: string }[];
+  journal: { id: string; messageId: string; channelName: string | null; authorName: string; content: string | null; sent: string | null; createdAt: string }[];
+  relations: { memberId: string; memberName: string; affinityDelta: number; trustDelta: number; reason: string; createdAt: string }[];
+  query: { text: string; phrases: string[] };
+}
+
+export interface FactOperationView {
+  id: string;
+  memberId: string;
+  memberName: string;
+  factId: string | null;
+  ref: string | null;
+  op: "move" | "rewrite" | "merge" | "delete" | "drawer";
+  status: "done" | "planned" | "applied" | "dismissed" | "failed";
+  reason: string;
+  details: { before?: string; after?: string; from?: string; to?: string; merged?: { id: string; ref: string; content: string }[]; drawer?: { key: string; label: string } };
+  run: "nightly" | "cleanup" | "analysis";
+  createdAt: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+}
+
+export interface NoteView {
+  id: string;
+  kind: "gap" | "wish";
+  content: string;
+  reason: string | null;
+  label: number | null;
+  source: "reflection" | "conversation";
+  status: "open" | "done" | "declined" | "later";
+  answer: string | null;
+  answeredAt: string | null;
+  createdAt: string;
+}
+
+export interface TechniqueView {
+  isOwner: boolean;
+  tidyDryRun: boolean;
+  feedback: { id: string; authorId: string; authorName: string; content: string; about: string | null; source: string; createdAt: string; reviewedAt: string | null; verdict: "adopted" | "partial" | "ignored" | null; verdictReason: string | null; reviewedLabel: number | null }[];
+  operations: FactOperationView[];
+  notes: NoteView[];
+  drawers: { key: string; label: string; reason: string | null; owner: string | null; member_id: string | null; count: number; created_at: string }[];
+  storage: { counts: Record<string, number | string | null>; tables: { name: string; bytes: number; rows: number }[] };
 }

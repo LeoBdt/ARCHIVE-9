@@ -138,7 +138,7 @@ function Reply({ r }: { r: ReplyEntry }) {
         <Block label="Ce que j'avais en tête">
           <div className="stack-8">
             {d?.people?.map((p) => (
-              <Link key={p.id} to={`/archives/${p.id}`} className="person-line px-dim">
+              <Link key={p.id} to={`/dossiers/${p.id}`} className="person-line px-dim">
                 <span className="who-link">
                   <Avatar id={p.id} name={p.name} hash={p.avatar} size={32} />
                   <strong>{p.name}</strong>
@@ -277,7 +277,7 @@ function Learned({ e, onSource }: { e: LearnedEntry; onSource: (id: string) => v
           </span>
           <time dateTime={e.at}>{when(e.at)}</time>
         </div>
-        <Link to={`/archives/${e.memberId}`} className="who-link">
+        <Link to={`/dossiers/${e.memberId}`} className="who-link">
           <Avatar id={e.memberId} name={e.name} hash={e.avatar} size={32} />
           <strong>{e.name}</strong>
         </Link>
@@ -303,7 +303,7 @@ function Learned({ e, onSource }: { e: LearnedEntry; onSource: (id: string) => v
         <time dateTime={e.at}>{when(e.at)}</time>
       </div>
       <div className="row-wrap">
-        <Link to={`/archives/${e.memberId}`} className="who-link">
+        <Link to={`/dossiers/${e.memberId}`} className="who-link">
           <Avatar id={e.memberId} name={e.name} hash={e.avatar} size={32} />
           <strong>{e.name}</strong>
         </Link>
@@ -323,7 +323,7 @@ function Learned({ e, onSource }: { e: LearnedEntry; onSource: (id: string) => v
         <p>{how(e)}</p>
       </Block>
       <div className="row-wrap">
-        <Link className="button-ghost small" to={`/archives/${e.memberId}`}>
+        <Link className="button-ghost small" to={`/dossiers/${e.memberId}`}>
           Voir le dossier
         </Link>
         {e.source?.messageId && (

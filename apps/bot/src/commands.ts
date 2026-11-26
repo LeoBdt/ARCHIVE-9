@@ -2,6 +2,9 @@ import { INTRODUCTION, SERVER_DESCRIPTION } from "@archive-9/ai";
 import {
   currentFacts,
   deleteSkill,
+  dmPrivateIds,
+  eraseDmHistory,
+  setDmPrivate,
   findActiveSkill,
   forgetMember,
   getAction,
@@ -47,6 +50,7 @@ export const COMMANDS = [
   new SlashCommandBuilder().setName("mondossier").setDescription("Ce qu'ARCHIVE-9 sait sur toi"),
   new SlashCommandBuilder().setName("serveur").setDescription("Ce qu'ARCHIVE-9 sait du serveur"),
   new SlashCommandBuilder().setName("oublie-moi").setDescription("Effacer toutes tes données et ne plus être archivé, ou revenir"),
+  new SlashCommandBuilder().setName("mp-prives").setDescription("Garder nos messages privés hors de la mémoire d'ARCHIVE-9, ou les y remettre"),
   new SlashCommandBuilder().setName("pause").setDescription("Couper toutes les réponses d'ARCHIVE-9").setDefaultMemberPermissions(ADMIN),
   new SlashCommandBuilder().setName("reprendre").setDescription("Relancer ARCHIVE-9 après une pause").setDefaultMemberPermissions(ADMIN),
   new SlashCommandBuilder()
@@ -140,7 +144,7 @@ export function formatProfile(
   const lines = [`**Dossier n°${id}** · ${name}`];
   if (overview.tagline) lines.push(`> ${overview.tagline}`);
   const r = overview.relationship;
-  const relation = r ? ` · affinité ${String(r.affinity)}/100 · confiance ${String(r.trust)}/100${r.feeling ? ` · ${r.feeling}` : ""}` : "";
+  const relation = r ? ` · affinité ${String(r.affinity)} (−50 à 50) · confiance ${String(r.trust)}/50${r.feeling ? ` · ${r.feeling}` : ""}` : "";
   lines.push(`-# ${String(overview.messageCount)} messages archivés · ${String(overview.factCount)} fragments retenus${relation}`);
   if (!overview.summary && facts.length === 0) {
     lines.push("", "Rien d'exploitable pour l'instant. Je relis les conversations toutes les quelques heures. Patience, j'observe.");
@@ -197,6 +201,36 @@ async function forgetMe(i: ChatInputCommandInteraction, deps: CommandDeps) {
   await i.reply({
     content: forgetWarning({ messages: overview.messageCount, facts: overview.factCount, skills: counts.byAuthor, preferences: preferences.length }),
     components: [row],
+    flags: ephemeral,
+  });
+}
+
+/** DMs out of its memory (or back in), with the choice to erase the old ones and what came from them. */
+async function privateDms(i: ChatInputCommandInteraction, deps: CommandDeps) {
+  const already = (await dmPrivateIds(deps.db, [i.user.id])).has(i.user.id);
+  const button = (id: string, label: string, style: ButtonStyle) => new ButtonBuilder().setCustomId(`${id}:${i.user.id}`).setLabel(label).setStyle(style);
+  if (already) {
+    await i.reply({
+      content: "Tes MP sont privés : je ne les archive pas et je n'en apprends rien. Tu veux que je m'en souvienne de nouveau, comme du reste ?",
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button("dmpublic", "Archiver de nouveau mes MP", ButtonStyle.Primary), button("cancel", "Laisser privés", ButtonStyle.Secondary))],
+      flags: ephemeral,
+    });
+    return;
+  }
+  await i.reply({
+    content: [
+      "**Garder nos MP hors de ma mémoire.**",
+      "- Je ne les archive plus et je n'en tire plus de fragments : je te réponds seulement avec la conversation sous les yeux.",
+      "- Ce qu'on se dit ailleurs sur le serveur, je le retiens toujours.",
+      "- Tu peux aussi me faire oublier nos anciens MP, et les fragments que j'en ai tirés (sur toi ou sur d'autres).",
+    ].join("\n"),
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        button("dmprivate", "Rendre privés, garder l'ancien", ButtonStyle.Primary),
+        button("dmerase", "Rendre privés et effacer l'ancien", ButtonStyle.Danger),
+        button("cancel", "Annuler", ButtonStyle.Secondary),
+      ),
+    ],
     flags: ephemeral,
   });
 }
@@ -398,11 +432,24 @@ async function onButton(i: ButtonInteraction, deps: CommandDeps) {
     await forgetMember(deps.db, i.user.id);
     deps.log.info({ memberId: i.user.id }, "member forgotten");
     await i.update({ content: "C'est fait. Tu n'existes plus dans mes archives, et je ne te réponds plus. Si tu changes d'avis : `/oublie-moi`, et on repart de zéro.", components: [] });
+  } else if (action === "dmprivate" || action === "dmerase") {
+    await setDmPrivate(deps.db, i.user.id, true);
+    const erased = action === "dmerase" ? await eraseDmHistory(deps.db, i.user.id) : null;
+    deps.log.info({ memberId: i.user.id, erased }, "DMs made private");
+    await i.update({
+      content: erased
+        ? `C'est fait : nos MP restent entre nous. J'ai effacé ${String(erased.messages)} messages et ${String(erased.facts)} fragments qui en venaient.`
+        : "C'est fait : nos prochains MP restent entre nous. Ce que je savais déjà reste dans mes archives.",
+      components: [],
+    });
+  } else if (action === "dmpublic") {
+    await setDmPrivate(deps.db, i.user.id, false);
+    await i.update({ content: "Entendu : je retiens de nouveau nos MP, comme le reste.", components: [] });
   } else if (action === "optin") {
     await optBackIn(deps.db, i.user.id);
     await i.update({ content: "Bon retour. Je repars de zéro : je ne me souviens de rien, je me présenterai comme à un inconnu.", components: [] });
   } else {
-    await i.update({ content: "Rien n'a été effacé.", components: [] });
+    await i.update({ content: "Rien n'a changé.", components: [] });
   }
 }
 
@@ -419,6 +466,9 @@ async function slashCommand(i: ChatInputCommandInteraction, deps: CommandDeps) {
       break;
     case "oublie-moi":
       await forgetMe(i, deps);
+      break;
+    case "mp-prives":
+      await privateDms(i, deps);
       break;
     case "pause":
       await deps.settings.set("paused", true, i.user.id);

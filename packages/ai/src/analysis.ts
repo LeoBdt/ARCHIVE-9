@@ -60,11 +60,14 @@ export interface AnalysisInput {
   server?: ServerContext;
   participants: AnalysisParticipant[];
   conversations: AnalysisConversation[];
-  /** The drawers facts can go in; the starting ones when absent. */
-  categories?: CategoryInfo[];
+  /** The drawers facts can go in; the starting ones when absent. A personal drawer only takes its member's facts. */
+  categories?: Drawer[];
 }
 
-export const BASE_CATEGORIES: CategoryInfo[] = Object.entries(BASE_CATEGORY_INFO).map(([key, info]) => ({ key, ...info }));
+/** A drawer; a personal one only takes its member's facts. */
+export type Drawer = CategoryInfo & { memberId?: string | null };
+
+export const BASE_CATEGORIES: Drawer[] = Object.entries(BASE_CATEGORY_INFO).map(([key, info]) => ({ key, ...info }));
 
 export const MAX_FACTS_PER_BATCH = 20;
 
@@ -90,8 +93,8 @@ export const analysisSchema = z.object({
   relationships: z.array(
     z.object({
       memberId: z.string(),
-      affinityDelta: z.number().describe("entier entre -5 et 5"),
-      trustDelta: z.number().describe("entier entre -5 et 5"),
+      affinityDelta: z.number().describe("entre -0.5 et 0.5, par pas de 0.1 ; 0 si rien de notable"),
+      trustDelta: z.number().describe("entre -0.5 et 0.5, par pas de 0.1 ; 0 si rien de notable"),
       reason: z.string(),
       sourceMessageId: z.string().nullable(),
       feeling: z.string().nullable().describe("ce qu'ARCHIVE-9 ressent pour cette personne, ou null"),
@@ -159,7 +162,7 @@ function describeParticipant(p: AnalysisParticipant, refOf: Map<string, string>)
     ? "le serveur lui-même, pour ce qui concerne tout le groupe"
     : p.affinity === null
       ? "aucune relation"
-      : `affinité ${String(p.affinity)}/100, confiance ${String(p.trust ?? 50)}/100${p.feeling ? `, ressenti : ${p.feeling}` : ""}`;
+      : `affinité ${String(p.affinity)} (de -50 à 50), confiance ${String(p.trust ?? 25)} (de 0 à 50)${p.feeling ? `, ressenti : ${p.feeling}` : ""}`;
   const lines = [`- ${p.name}${p.isBot ? " [bot]" : ""} (ID ${p.id}) · ${relation}`];
   if (p.summary) lines.push(`  Fiche : ${p.summary}`);
   if (p.facts.length === 0) lines.push("  Aucune info connue.");
@@ -190,7 +193,9 @@ ${context}${formatTranscript(c.messages, options)}
 </donnees>`;
   });
 
-  const drawers = (input.categories ?? BASE_CATEGORIES).map((c) => `- ${c.key} : ${c.label}`).join("\n");
+  const drawers = (input.categories ?? BASE_CATEGORIES)
+    .map((c) => `- ${c.key} : ${c.label}${c.memberId ? ` (tiroir perso de ${names.get(c.memberId) ?? c.memberId}, seulement pour ses fragments)` : ""}`)
+    .join("\n");
   return `ARCHIVE-9 a l'ID ${input.selfId}.
 ${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Les tiroirs (category : la clé à gauche)
@@ -218,8 +223,9 @@ function cleanText(value: string | null, max: number): string | null {
   return text ? truncate(text, max) : null;
 }
 
+/** One of the allowed steps: 0, ±0.1 … ±0.5. The daily cap is applied when it is written. */
 function clampDelta(value: number): number {
-  return Number.isFinite(value) ? Math.max(-5, Math.min(5, Math.round(value))) : 0;
+  return Number.isFinite(value) ? Math.max(-0.5, Math.min(0.5, Math.round(value * 10) / 10)) : 0;
 }
 
 /**
@@ -231,7 +237,7 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
   const serverIds = new Set(input.participants.filter((p) => p.isServer).map((p) => p.id));
   const refs = factRefs(input.participants);
   const authorOf = new Map(input.conversations.flatMap((c) => c.messages.map((m) => [m.id, m.authorId] as const)));
-  const drawers = new Set((input.categories ?? BASE_CATEGORIES).map((c) => c.key));
+  const drawerOwner = new Map<string, string | null>((input.categories ?? BASE_CATEGORIES).map((c) => [c.key, c.memberId ?? null]));
 
   const facts: LearnedFact[] = [];
   const seen = new Set<string>();
@@ -260,7 +266,7 @@ export function sanitiseAnalysis(raw: RawAnalysis, input: AnalysisInput): Analys
     seen.add(`${memberId}:${content.toLowerCase()}`);
     facts.push({
       memberId,
-      category: drawers.has(f.category.trim()) ? f.category.trim() : "other",
+      category: drawerOwner.has(f.category.trim()) && [null, memberId].includes(drawerOwner.get(f.category.trim()) ?? null) ? f.category.trim() : "other",
       nature,
       confidence: Number.isFinite(f.confidence) ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
       content,

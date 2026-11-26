@@ -83,7 +83,7 @@ describe.skipIf(!url)("repositories", () => {
     await recordInteraction(db, "2");
     const contexts = await memberContexts(db, ["1", "2"]);
     expect(contexts.get("1")).toMatchObject({ introduced: false, affinity: null });
-    expect(contexts.get("2")).toMatchObject({ introduced: true, affinity: 0, trust: 50 });
+    expect(contexts.get("2")).toMatchObject({ introduced: true, affinity: 0, trust: 25 });
     expect((await memberContexts(db, [])).size).toBe(0);
   });
 

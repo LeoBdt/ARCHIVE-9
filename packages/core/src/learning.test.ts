@@ -33,24 +33,26 @@ describe("packConversations", () => {
 });
 
 describe("capDelta", () => {
-  it("caps each change and the daily total", () => {
-    expect(capDelta(12, 0)).toBe(5);
-    expect(capDelta(-12, 0)).toBe(-5);
-    expect(capDelta(2.6, 0)).toBe(3);
-    expect(capDelta(5, 12)).toBe(3);
-    expect(capDelta(5, 15)).toBe(0);
-    expect(capDelta(-5, 15)).toBe(-5);
-    expect(capDelta(-5, -13)).toBe(-2);
-    expect(capDelta(3, 20)).toBe(0);
+  it("turns a change into a 0.1 to 0.5 step within ±1 a day", () => {
+    expect(capDelta(12, 0)).toBe(0.5);
+    expect(capDelta(-12, 0)).toBe(-0.5);
+    expect(capDelta(0.26, 0)).toBe(0.3);
+    expect(capDelta(0.04, 0)).toBe(0);
+    expect(capDelta(0.06, 0)).toBe(0.1);
+    expect(capDelta(0.5, 0.7)).toBe(0.3);
+    expect(capDelta(0.5, 1)).toBe(0);
+    expect(capDelta(-0.5, 1)).toBe(-0.5);
+    expect(capDelta(-0.5, -0.8)).toBe(-0.2);
     expect(capDelta(0, 0)).toBe(0);
     expect(capDelta(Number.NaN, 0)).toBe(0);
   });
 
-  it("keeps values in range", () => {
-    expect(applyAffinity(98, 5)).toBe(100);
-    expect(applyAffinity(-98, -5)).toBe(-100);
-    expect(applyTrust(2, -5)).toBe(0);
-    expect(applyTrust(50, 5)).toBe(55);
+  it("keeps values in range, to one decimal", () => {
+    expect(applyAffinity(49.8, 0.5)).toBe(50);
+    expect(applyAffinity(-49.8, -0.5)).toBe(-50);
+    expect(applyTrust(0.2, -0.5)).toBe(0);
+    expect(applyTrust(25, 0.1)).toBe(25.1);
+    expect(applyAffinity(0.1, 0.2)).toBe(0.3);
   });
 });
 

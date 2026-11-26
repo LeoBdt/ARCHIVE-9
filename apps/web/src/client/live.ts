@@ -4,7 +4,9 @@ import type { QueryClient } from "@tanstack/react-query";
 export const REFRESH: Record<string, string[]> = {
   decisions: ["journal", "home"],
   actions_log: ["journal", "home"],
-  profile_facts: ["home", "dossier", "dossiers", "journal"],
+  profile_facts: ["home", "dossier", "dossiers", "journal", "search", "technique"],
+  fact_operations: ["technique", "dossier"],
+  capability_gaps: ["technique"],
   learned: ["home", "dossier", "dossiers", "journal", "relations"],
   fact_categories: ["dossier", "journal"],
   relationship_events: ["relations", "dossier", "home", "journal"],
@@ -12,7 +14,7 @@ export const REFRESH: Record<string, string[]> = {
   self_state: ["esprit", "home", "journal"],
   skills: ["skills", "home", "journal"],
   settings: ["home", "settings", "systeme", "esprit"],
-  feedback: ["esprit"],
+  feedback: ["esprit", "technique"],
   site_requests: ["request"],
   releases: ["systeme"],
 };

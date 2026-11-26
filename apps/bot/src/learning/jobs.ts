@@ -1,15 +1,39 @@
+import { randomUUID } from "node:crypto";
+import { embedTexts, type EmbeddingConfig } from "@archive-9/ai";
 import { ANALYSIS_TIMING, dueReflection, type ReflectionHours } from "@archive-9/core";
-import { aiCostSince, lastReflections, pendingStats, purgeDecisions, purgeMessages, summariesToRefresh, withAdvisoryLock, type SqlClient } from "@archive-9/db";
+import {
+  aiCostSince,
+  dossiersToTidy,
+  expirePlannedOperations,
+  factsToEmbed,
+  lastReflections,
+  pendingStats,
+  purgeDecisions,
+  purgeMessages,
+  recordAiUsage,
+  saveEmbeddings,
+  summariesToRefresh,
+  vectorStoreReady,
+  withAdvisoryLock,
+  type SqlClient,
+} from "@archive-9/db";
 import { refreshSummaries, runAnalysis, type AnalysisReport, type LearningDeps } from "./analyse.ts";
 import { runMiddayReflection, runReflection } from "./reflect.ts";
-import { tidyDrawers } from "./tidy.ts";
+import { tidyDossiers } from "./tidy.ts";
 
 export interface JobsConfig {
   analysisDailyBudgetUsd: number;
   /** Read at each tick: the site can change them. */
   reflectionHours: () => ReflectionHours;
   retentionDays: number;
+  /** The search index over fragments; left out when Postgres has no pgvector. */
+  embedding?: EmbeddingConfig;
 }
+
+/** Old dossiers reread each evening, on top of those that changed: everything is reread in a couple of weeks. */
+const OLD_DOSSIERS_PER_EVENING = 5;
+const TIDY_BUDGET_USD = 0.05;
+const EMBED_BATCH = 64;
 
 /** Shared with the backfill script, so only one process analyses at a time. */
 export const ANALYSIS_LOCK = 7_309_001;
@@ -57,7 +81,10 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
         if (purged > 0) log.info({ purged }, "old messages purged");
         // What it decided about each message is only kept two weeks.
         await purgeDecisions(db, new Date(now.getTime() - 14 * DAY));
+        await expirePlannedOperations(db, new Date(now.getTime() - 30 * DAY));
       }
+
+      if (config.embedding && (await vectorStoreReady(db))) await embedNew(config.embedding);
 
       // Someone took facts off their profile: their summary must stop mentioning them.
       const corrected = await summariesToRefresh(db);
@@ -78,9 +105,9 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
           const done = due === "evening" ? await runReflection(deps) : await runMiddayReflection(deps);
           if (!done) reflectionRetryAt = now.getTime() + RETRY_MS;
           if (done && due === "evening") {
-            await tidyDrawers(deps).catch((err: unknown) => {
-              log.warn({ err }, "drawer tidy failed");
-            });
+            const ids = await dossiersToTidy(db, OLD_DOSSIERS_PER_EVENING, selfId);
+            const report = await tidyDossiers(deps, ids, "nightly", TIDY_BUDGET_USD);
+            log.info(report, "evening tidy done");
           }
         } catch (error) {
           reflectionRetryAt = now.getTime() + RETRY_MS;
@@ -92,6 +119,19 @@ export function startLearningJobs(deps: LearningDeps & { client: SqlClient }, co
     } finally {
       running = false;
     }
+  }
+
+  /** Gives new fragments their vector, a batch per tick. */
+  async function embedNew(embedding: EmbeddingConfig): Promise<void> {
+    const facts = await factsToEmbed(db, EMBED_BATCH);
+    if (facts.length === 0) return;
+    const outcome = await embedTexts(embedding, facts.map((f) => f.content));
+    await recordAiUsage(db, [{ ...outcome.usage, runId: randomUUID(), detail: `${String(facts.length)} fragments` }]);
+    if (!outcome.vectors) {
+      log.warn({ error: outcome.usage.error }, "embedding failed");
+      return;
+    }
+    await saveEmbeddings(db, embedding.model, facts.map((f, i) => ({ factId: f.id, vector: outcome.vectors?.[i] ?? [] })));
   }
 
   const first = setTimeout(() => void tick(), MINUTE);

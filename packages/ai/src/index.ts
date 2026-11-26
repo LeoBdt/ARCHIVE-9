@@ -13,3 +13,6 @@ export * from "./summary.ts";
 export * from "./triage.ts";
 export * from "./usage.ts";
 export * from "./site-tasks.ts";
+export * from "./tidy.ts";
+export * from "./vision.ts";
+export * from "./embeddings.ts";

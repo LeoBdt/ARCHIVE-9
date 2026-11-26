@@ -20,3 +20,8 @@ export * from "./repositories/skills.ts";
 export * as schema from "./schema.ts";
 export type { DecisionDetails, ReleaseItem, RequestStep } from "./schema.ts";
 export * from "./web-role.ts";
+export * from "./repositories/fragments.ts";
+export * from "./repositories/images.ts";
+export * from "./repositories/vectors.ts";
+export * from "./repositories/search.ts";
+export * from "./repositories/technique.ts";

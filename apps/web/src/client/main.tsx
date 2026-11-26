@@ -7,13 +7,14 @@ import "./styles.css";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router";
 import { getJson, HttpError, type Viewer } from "./api.ts";
 import { Boot } from "./components/Boot.tsx";
 import { startLive } from "./live.ts";
 import { Header } from "./components/Header.tsx";
 import { Access } from "./pages/Access.tsx";
-import { Archives } from "./pages/Archives.tsx";
+import { Dossiers } from "./pages/Dossiers.tsx";
+import { Search } from "./pages/Search.tsx";
 import { System } from "./pages/System.tsx";
 import { Settings } from "./pages/Settings.tsx";
 import { Dossier } from "./pages/Dossier.tsx";
@@ -25,6 +26,12 @@ import { Skills } from "./pages/Skills.tsx";
 import { Soon } from "./pages/Soon.tsx";
 
 const queries = new QueryClient({ defaultOptions: { queries: { retry: (count, error) => !(error instanceof HttpError) && count < 2 } } });
+
+/** Dossiers used to live under /archives: old links still land on them. */
+function OldDossierLink() {
+  const { id = "" } = useParams();
+  return <Navigate to={`/dossiers/${id}`} replace />;
+}
 
 function Site() {
   const me = useQuery({ queryKey: ["me"], queryFn: () => getJson<Viewer>("/api/me") });
@@ -43,8 +50,12 @@ function SignedIn({ viewer }: { viewer: Viewer }) {
       <Header viewer={viewer} />
       <Routes>
         <Route path="/" element={<Home viewer={viewer} />} />
-        <Route path="/archives" element={<Archives />} />
-        <Route path="/archives/:id" element={<Dossier />} />
+        <Route path="/dossiers" element={<Dossiers />} />
+        <Route path="/dossiers/:id" element={<Dossier />} />
+        <Route path="/archives" element={<Search />} />
+        <Route path="/archives/:id" element={<OldDossierLink />} />
+        <Route path="/admin" element={<Settings viewer={viewer} />} />
+        <Route path="/technique" element={<Navigate to="/admin?tab=technique" replace />} />
         <Route path="/relations" element={<Relations />} />
         <Route path="/esprit" element={<Mind viewer={viewer} />} />
         <Route path="/memoire" element={<Navigate to="/esprit" replace />} />
@@ -52,7 +63,7 @@ function SignedIn({ viewer }: { viewer: Viewer }) {
         <Route path="/journal" element={<Journal />} />
         <Route path="/systeme" element={<System />} />
         <Route path="/coulisses" element={<Navigate to="/systeme" replace />} />
-        <Route path="/reglages" element={<Settings viewer={viewer} />} />
+        <Route path="/reglages" element={<Navigate to="/admin" replace />} />
         <Route path="*" element={<Soon />} />
       </Routes>
     </>

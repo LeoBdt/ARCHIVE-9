@@ -1,7 +1,16 @@
-import { checkOwnFactText } from "@archive-9/core";
+import { checkOwnFactText, isEmptySearch, parseSearchQuery } from "@archive-9/core";
 import {
   accessList,
   actionJournal,
+  answerNote,
+  applyPlannedOperation,
+  dismissPlannedOperation,
+  factOperationLog,
+  feedbackHistory,
+  notebook,
+  searchArchives,
+  storageStats,
+  technicalDrawers,
   closeSkill,
   correctOwnFact,
   createSiteRequest,
@@ -226,6 +235,57 @@ export function createApp(deps: AppDeps) {
 
   app.get("/api/relations", async (c) => c.json(await relationsOverview(deps.db)));
 
+  // The search engine: words, people, fragment IDs and ranks, drawers, dates.
+  app.get("/api/search", async (c) => {
+    const q = parseSearchQuery(c.req.query("q") ?? "");
+    if (isEmptySearch(q)) return c.json({ empty: true });
+    const { names, open } = await channels();
+    const started = Date.now();
+    const results = await searchArchives(deps.db, q, c.var.viewer, { publicChannelIds: [...open], limit: 30 });
+    return c.json(
+      await readable({
+        ...results,
+        messages: results.messages.map((m) => ({ ...m, channelName: m.guildId === null ? null : (names.get(m.channelId) ?? null), isDm: m.guildId === null })),
+        tookMs: Date.now() - started,
+        query: { ...q, after: q.after?.toISOString() ?? null, before: q.before?.toISOString() ?? null },
+      }),
+    );
+  });
+
+  // Technique: admins only. Feedback history, what the tidy did, its notebook, storage.
+  app.get("/api/technique", async (c) => {
+    if (!c.var.viewer.isAdmin) return c.json({ error: "forbidden" }, 403);
+    const [feedback, operations, notes, storage, drawers, settings] = await Promise.all([
+      feedbackHistory(deps.db),
+      factOperationLog(deps.db, { limit: 300 }),
+      notebook(deps.db),
+      storageStats(deps.db),
+      technicalDrawers(deps.db),
+      readSettings(deps.db),
+    ]);
+    return c.json(await readable({ feedback, operations, notes, storage, drawers, tidyDryRun: settings.tidyDryRun, isOwner: c.var.viewer.isOwner }));
+  });
+  app.post("/api/technique/operations/:id", async (c) => {
+    if (!c.var.viewer.isAdmin) return c.json({ error: "forbidden" }, 403);
+    const body = z.object({ action: z.enum(["apply", "dismiss"]) }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "invalid" }, 400);
+    const id = c.req.param("id");
+    if (body.data.action === "dismiss") return (await dismissPlannedOperation(deps.db, id, c.var.viewer.id)) ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
+    const status = await applyPlannedOperation(deps.db, id, c.var.viewer.id);
+    return status === "not_found" ? c.json({ error: "not_found" }, 404) : c.json({ ok: true, status });
+  });
+  // Its notebook is addressed to its creator: the owner answers.
+  app.post("/api/technique/notes/:id", async (c) => {
+    if (!c.var.viewer.isOwner) return c.json({ error: "forbidden" }, 403);
+    const body = z.object({ status: z.enum(["open", "done", "declined", "later"]), answer: z.string().max(500).default("") }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "invalid" }, 400);
+    return (await answerNote(deps.db, c.req.param("id"), body.data.status, body.data.answer, c.var.viewer.id)) ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
+  });
+  app.post("/api/technique/cleanup", async (c) => {
+    if (!c.var.viewer.isAdmin) return c.json({ error: "forbidden" }, 403);
+    return queue(c, "cleanup", null, { by: c.var.viewer.name }, "Grand ménage demandé.");
+  });
+
   app.get("/api/esprit", async (c) => {
     const [memory, settings] = await Promise.all([memoryOverview(deps.db), readSettings(deps.db)]);
     return c.json({
@@ -359,6 +419,7 @@ export function createApp(deps: AppDeps) {
       showFallbackTag: s.showFallbackTag,
       listenedChannelIds: s.listenedChannelIds,
       reflectionHours: s.reflectionHours,
+      tidyDryRun: s.tidyDryRun,
       channels: s.channelDirectory,
     });
   });
@@ -366,6 +427,7 @@ export function createApp(deps: AppDeps) {
     paused: z.boolean().optional(),
     spontaneity: z.number().int().min(0).max(3).optional(),
     showFallbackTag: z.boolean().optional(),
+    tidyDryRun: z.boolean().optional(),
     listenedChannelIds: z.array(z.string().regex(/^\d{17,20}$/)).max(300).optional(),
     reflectionHours: z
       .object({ midday: z.number().int().min(0).max(23), evening: z.number().int().min(0).max(23) })

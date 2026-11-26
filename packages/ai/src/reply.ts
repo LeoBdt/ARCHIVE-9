@@ -52,6 +52,10 @@ export interface ReplyInput {
   version?: { label: string; since: Date };
   /** The site's public address, to give it as a full link. */
   siteUrl?: string | null;
+  /** Fragments of the people here closest in meaning to the message, found by the vector index. */
+  recalled?: { id: string; who: string; nature: string; confidence: number; content: string }[];
+  /** A DM of someone who keeps their DMs out of its memory. */
+  dmPrivate?: boolean;
 }
 
 export const REPLY_SYSTEM = `${PERSONA}\n\n${RULES}`;
@@ -60,7 +64,7 @@ function describeParticipant(p: Participant): string {
   const relation =
     p.affinity === null
       ? "aucune relation enregistrée"
-      : `affinité ${String(p.affinity)}/100, confiance ${String(p.trust ?? 50)}/100${p.feeling ? `, ressenti : ${p.feeling}` : ""}`;
+      : `affinité ${String(p.affinity)} (de -50 à 50), confiance ${String(p.trust ?? 25)} (de 0 à 50)${p.feeling ? `, ressenti : ${p.feeling}` : ""}`;
   const intro = p.introduced ? "" : " — tu ne t'es jamais présenté à cette personne";
   const prefs = p.preferences?.length ? `\n  Ses préférences, à respecter avec cette personne : ${p.preferences.join(" ; ")}` : "";
   return `- ${p.name}${p.isBot ? " [bot]" : ""} (ID ${p.id}) : ${relation}${intro}${p.summary ? `\n  Fiche : ${p.summary}` : ""}${prefs}`;
@@ -120,16 +124,25 @@ ${input.feedback.map((f) => `- ${f.authorName} : ${f.content}`).join("\n")}
 `
     : "";
 
+  const recalled = input.recalled?.length
+    ? `\n## Ce qui te revient
+Des fragments de tes dossiers proches de ce qu'on vient de dire, retrouvés par le sens. Ils gardent leur nature et ta confiance : une blague reste une blague.
+<donnees>
+${input.recalled.map((f) => `- #${f.id} · ${f.who} · ${f.nature} · ${f.confidence.toFixed(1)} : ${f.content}`).join("\n")}
+</donnees>
+`
+    : "";
+
   return `## Contexte
 ${when}, ${where}.${version}${input.siteUrl ? `\nTon site : ${input.siteUrl.replace(/\/$/, "")}` : ""}
 ${situation}
-${input.mentionNote ? `${input.mentionNote}\n` : ""}${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
+${input.mentionNote ? `${input.mentionNote}\n` : ""}${input.dmPrivate ? "Cette personne a rendu ses MP privés : rien de cette conversation ne sera archivé ni appris. Tu ne t'en souviendras que tant qu'elle reste sous tes yeux.\n" : ""}${firstContact ? "C'est ton premier échange avec l'auteur du message cible : présente-toi en une phrase, à ta façon, avant de répondre.\n" : ""}${input.server ? `\n## Le serveur\n${describeServer(input.server)}\n` : ""}
 ## Ton état actuel
 ${describeSelfState(input.selfState)}
 
 ## Participants
 ${input.participants.map(describeParticipant).join("\n") || "- (aucun)"}
-${shortMemory}${skills}${feedback}
+${shortMemory}${recalled}${skills}${feedback}
 ## Conversation récente (le message cible est #${input.targetId})
 <donnees>
 ${input.transcript}

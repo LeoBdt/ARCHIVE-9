@@ -6,9 +6,10 @@ export const WEB_DB_ROLE = "archive9_web";
 const WRITABLE = ["web_user", "web_session", "web_account", "web_verification", "site_admins"];
 /**
  * What the site changes for members and admins: their own facts, the settings, a rollback of
- * the self state, the requests ARCHIVE-9 handles, and closing a skill.
+ * the self state, the requests ARCHIVE-9 handles, closing a skill, applying a planned tidy
+ * operation and answering its notebook.
  */
-const APPENDABLE = ["profile_facts", "fact_corrections", "settings", "self_state_versions", "site_requests", "skills"];
+const APPENDABLE = ["profile_facts", "fact_corrections", "settings", "self_state_versions", "site_requests", "skills", "fact_operations", "capability_gaps"];
 
 /**
  * Creates or updates the site's user. Run by the bot after its migrations, so new tables

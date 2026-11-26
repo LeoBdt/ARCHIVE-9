@@ -2,6 +2,7 @@ import { answerMindComment, checkSkill, INITIAL_SELF_STATE, planCorrection, plan
 import { checkSkillDraft, parseUntil, SKILL_LIMITS, truncate } from "@archive-9/core";
 import {
   addFeedback,
+  allDossiers,
   addRequestStep,
   AI_REQUESTS_PER_DAY,
   aiRequestsToday,
@@ -24,6 +25,7 @@ import {
   type SqlClient,
 } from "@archive-9/db";
 import { refreshSummaries, type LearningDeps } from "./learning/analyse.ts";
+import { tidyDossiers } from "./learning/tidy.ts";
 import type { SettingsStore } from "./settings.ts";
 
 export interface RequestDeps extends LearningDeps {
@@ -104,9 +106,32 @@ async function handle(deps: RequestDeps, request: SiteRequest, refresh: Set<stri
     case "skill_create":
     case "skill_edit":
       return learnSkill(deps, request);
+    case "cleanup":
+      return bigTidy(deps, request);
     default:
       await finishRequest(deps.db, request.id, "failed", { error: "unknown kind" }, 0);
   }
+}
+
+/** The one-shot big tidy, asked by an admin: every dossier, with the progress shown live. */
+const CLEANUP_BUDGET_USD = 0.5;
+
+async function bigTidy(deps: RequestDeps, request: SiteRequest): Promise<void> {
+  const { db } = deps;
+  const ids = await allDossiers(db, deps.selfId);
+  const dry = deps.tidyDryRun();
+  await addRequestStep(db, request.id, "step", `Je relis les ${String(ids.length)} dossiers un par un.${dry ? " Mode d'essai : je ne fais que proposer les fusions et les suppressions." : ""}`);
+  const report = await tidyDossiers(deps, ids, "cleanup", CLEANUP_BUDGET_USD, async (done, total) => {
+    if (done % 10 === 0 && done < total) await addRequestStep(db, request.id, "step", `${String(done)} dossiers sur ${String(total)}.`);
+  });
+  const left = ids.length - report.dossiers;
+  await addRequestStep(
+    db,
+    request.id,
+    "say",
+    `Fini : ${String(report.dossiers)} dossiers relus, ${String(report.done)} changements faits${report.planned ? `, ${String(report.planned)} en attente de ton accord` : ""}.${left > 0 ? ` J'ai atteint mon budget : il en reste ${String(left)}, je les relirai les soirs suivants.` : ""}`,
+  );
+  await finishRequest(db, request.id, "done", { ...report }, report.costUsd);
 }
 
 async function saveUsage(deps: RequestDeps, request: SiteRequest, usage: UsageRecord[]): Promise<number> {
@@ -120,7 +145,7 @@ async function followCorrection(deps: RequestDeps, request: SiteRequest, refresh
   const step = (t: string) => addRequestStep(db, request.id, "step", t);
   const p = request.payload;
   const memberId = text(p.memberId);
-  const [names, facts, categories] = await Promise.all([memberNames(db, [memberId]), currentFacts(db, memberId, 80), listCategories(db)]);
+  const [names, facts, categories] = await Promise.all([memberNames(db, [memberId]), currentFacts(db, memberId, 80), listCategories(db, memberId)]);
   const name = names.get(memberId) ?? "ce membre";
   const others = facts.filter((f) => f.id !== text(p.newFactId));
 

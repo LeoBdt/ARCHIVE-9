@@ -2,7 +2,11 @@ name: archive-9
 
 services:
   postgres:
-    image: postgres:18-alpine
+    # Built on the host the first time (pgvector added to postgres:18-alpine), then reused.
+    image: archive-9-postgres:18
+    build:
+      context: .
+      dockerfile: docker/postgres.Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}

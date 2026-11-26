@@ -19,7 +19,7 @@ export function initials(name: string): string {
 
 /** Affinity −100…100 as 0…10 lit segments. */
 export function affinitySegments(affinity: number): number {
-  return Math.max(0, Math.min(10, Math.round((affinity + 100) / 20)));
+  return Math.max(0, Math.min(10, Math.round((affinity + 50) / 10)));
 }
 
 export function greeting(now: Date, timeZone: string): string {

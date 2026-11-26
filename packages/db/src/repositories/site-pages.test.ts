@@ -37,7 +37,7 @@ describe.skipIf(!url)("site pages", () => {
     const write: AnalysisWrite = {
       facts: [{ memberId: "100000000000000001", category: "games", nature: "fact", confidence: 0.9, content: "Joue à CS2.", sourceMessageIds: ["m1"], reportedBy: null, replacesId: null }],
       retractions: [],
-      relationships: [{ memberId: "100000000000000001", affinityDelta: 4, trustDelta: 1, reason: "sympa", sourceMessageId: "m1", feeling: "complice", howTheyTreatMe: null }],
+      relationships: [{ memberId: "100000000000000001", affinityDelta: 0.4, trustDelta: 0.1, reason: "sympa", sourceMessageId: "m1", feeling: "complice", howTheyTreatMe: null }],
       analysedIds: ["m1"],
       at: new Date(),
     };
@@ -57,7 +57,7 @@ describe.skipIf(!url)("site pages", () => {
 
   it("shows a dossier with its sources, aliases and relationship", async () => {
     const d = await dossier(db, "100000000000000001");
-    expect(d).toMatchObject({ name: "Tomtom", aliases: ["tom", "Tom"], relationship: { affinity: 4, feeling: "complice" } });
+    expect(d).toMatchObject({ name: "Tomtom", aliases: ["tom", "Tom"], relationship: { affinity: 0.4, feeling: "complice" } });
     expect(d?.facts[0]).toMatchObject({ content: "Joue à CS2.", source: "https://discord.com/channels/g/c/m1" });
     expect(d?.affinityHistory).toHaveLength(30);
     expect(await dossier(db, "100000000000000002")).toBeUndefined();
@@ -65,7 +65,7 @@ describe.skipIf(!url)("site pages", () => {
 
   it("lists relations with this week's moves", async () => {
     const r = await relationsOverview(db);
-    expect(r.people[0]).toMatchObject({ name: "Tomtom", affinity: 4, week: 4 });
+    expect(r.people[0]).toMatchObject({ name: "Tomtom", affinity: 0.4, week: 0.4 });
     expect(r.moves[0]).toMatchObject({ reason: "sympa" });
   });
 

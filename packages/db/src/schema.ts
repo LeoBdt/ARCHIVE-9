@@ -54,6 +54,12 @@ export const members = pgTable("members", {
   /** Discord avatar hash, for the site's pictures. */
   avatar: text(),
   optedOutAt: timestamptz(),
+  /** Asked for their DMs to stay out of its memory (/mp-prives). */
+  dmPrivateAt: timestamptz(),
+  /** Told once, in a first DM, that DMs are archived like the rest. */
+  dmNoticeAt: timestamptz(),
+  /** When the evening tidy last went through their dossier. */
+  tidiedAt: timestamptz(),
   firstSeenAt: createdAt(),
   lastSeenAt: createdAt(),
 });
@@ -88,6 +94,8 @@ export const factCategories = pgTable("fact_categories", {
   key: text().primaryKey(),
   label: text().notNull(),
   color: text().notNull(),
+  /** A drawer made for one person only; null for a drawer everyone shares. */
+  memberId: text().references(() => members.id, { onDelete: "cascade" }),
   /** "system" for the starting drawers, "archive-9" for its own. */
   createdBy: text().notNull().default("system"),
   /** Why ARCHIVE-9 opened it. */
@@ -99,6 +107,10 @@ export const profileFacts = pgTable(
   "profile_facts",
   {
     id: uuid().primaryKey().defaultRandom(),
+    /** Reference shown as #K7QX3M, drawn by the database, kept by every later version. */
+    ref: text().notNull().default(sql`a9_fragment_ref()`),
+    /** Arrival order in the dossier, kept by later versions; the F shown is the rank among current ones. 0 lets the database pick. */
+    number: integer().notNull().default(0),
     memberId: text()
       .notNull()
       .references(() => members.id, { onDelete: "cascade" }),
@@ -122,6 +134,9 @@ export const profileFacts = pgTable(
       .on(t.memberId)
       .where(sql`${t.supersededBy} is null and ${t.deletedAt} is null`),
     index().on(t.createdAt),
+    uniqueIndex("profile_facts_ref_idx").on(t.ref).where(sql`${t.supersededBy} is null and ${t.deletedAt} is null`),
+    index().on(t.memberId, t.number),
+    index("profile_facts_sources_idx").using("gin", t.sourceMessageIds),
   ],
 );
 
@@ -166,8 +181,8 @@ export const relationships = pgTable(
     memberId: text()
       .primaryKey()
       .references(() => members.id, { onDelete: "cascade" }),
-    affinity: smallint().notNull().default(0),
-    trust: smallint().notNull().default(50),
+    affinity: numeric({ precision: 4, scale: 1, mode: "number" }).notNull().default(0),
+    trust: numeric({ precision: 4, scale: 1, mode: "number" }).notNull().default(25),
     feeling: text(),
     howTheyTreatMe: text(),
     interactionCount: integer().notNull().default(0),
@@ -176,8 +191,8 @@ export const relationships = pgTable(
     updatedAt: createdAt(),
   },
   (t) => [
-    check("relationships_affinity_range", sql`${t.affinity} between -100 and 100`),
-    check("relationships_trust_range", sql`${t.trust} between 0 and 100`),
+    check("relationships_affinity_range", sql`${t.affinity} between -50 and 50`),
+    check("relationships_trust_range", sql`${t.trust} between 0 and 50`),
   ],
 );
 
@@ -188,8 +203,8 @@ export const relationshipEvents = pgTable(
     memberId: text()
       .notNull()
       .references(() => relationships.memberId, { onDelete: "cascade" }),
-    affinityDelta: smallint().notNull(),
-    trustDelta: smallint().notNull(),
+    affinityDelta: numeric({ precision: 3, scale: 1, mode: "number" }).notNull(),
+    trustDelta: numeric({ precision: 3, scale: 1, mode: "number" }).notNull(),
     reason: text().notNull(),
     sourceMessageId: text(),
     createdAt: createdAt(),
@@ -443,6 +458,8 @@ export interface DecisionDetails {
   skills?: string[];
   /** Its short memory of the author (messages elsewhere lately) and its mood then. */
   memory?: { messages: number; places: string[]; mood: string };
+  /** A DM of someone who made them private (/mp-prives): only they see it, admins included. */
+  private?: boolean;
 }
 
 /** Every message ARCHIVE-9 looked at, and what it decided. Kept 14 days. Feeds the journal and the backstage page. */
@@ -520,4 +537,91 @@ export const releases = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("releases_kind_sha_idx").on(t.kind, t.sha), index().on(t.kind, t.createdAt)],
+);
+
+export interface FactOperationDetails {
+  /** The fragment's text before, for a rewrite, a merge or a deletion. */
+  before?: string;
+  after?: string;
+  from?: string;
+  to?: string;
+  /** Fragments folded into this one by a merge. */
+  merged?: { id: string; ref: string; content: string }[];
+  /** A drawer opened for this person. */
+  drawer?: { key: string; label: string };
+}
+
+/**
+ * Everything the tidy did or wanted to do to fragments: moves, rewrites, merges, deletions,
+ * personal drawers. In dry run, merges and deletions wait here as `planned`.
+ */
+export const factOperations = pgTable(
+  "fact_operations",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    memberId: text()
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    factId: uuid().references(() => profileFacts.id, { onDelete: "set null" }),
+    /** move, rewrite, merge, delete or drawer. */
+    op: text().notNull(),
+    /** done, planned, applied (a planned one, later), dismissed, or failed. */
+    status: text().notNull(),
+    reason: text().notNull(),
+    details: jsonb().$type<FactOperationDetails>().notNull().default({}),
+    /** nightly, cleanup (the one-shot big tidy) or analysis. */
+    run: text().notNull(),
+    createdAt: createdAt(),
+    decidedAt: timestamptz(),
+    decidedBy: text(),
+  },
+  (t) => [index().on(t.createdAt), index().on(t.status, t.createdAt), index().on(t.memberId)],
+);
+
+/** What ARCHIVE-9 understood of each image or GIF it saw, described once. */
+export const messageImages = pgTable(
+  "message_images",
+  {
+    /** The attachment ID, or the message ID and position for an embed. */
+    id: text().primaryKey(),
+    messageId: text()
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    url: text().notNull(),
+    /** image, gif or embed (Tenor, Giphy…). */
+    kind: text().notNull(),
+    name: text(),
+    description: text(),
+    model: text(),
+    error: text(),
+    createdAt: createdAt(),
+    describedAt: timestamptz(),
+  },
+  (t) => [index().on(t.messageId), index("message_images_pending_idx").on(t.createdAt).where(sql`${t.describedAt} is null`)],
+);
+
+/**
+ * Its notebook for its creator: what it lacks (gap) and what it would like to change in
+ * itself (wish). The owner answers each note; it reads the answers in its evening reflection.
+ */
+export const capabilityGaps = pgTable(
+  "capability_gaps",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /** gap or wish. */
+    kind: text().notNull().default("gap"),
+    content: text().notNull(),
+    /** What happened that showed it. */
+    reason: text(),
+    label: numeric({ precision: 7, scale: 1, mode: "number" }),
+    /** reflection, or conversation when it noted it while talking. */
+    source: text().notNull().default("reflection"),
+    /** open, done, declined or later. */
+    status: text().notNull().default("open"),
+    answer: text(),
+    answeredAt: timestamptz(),
+    answeredBy: text(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.createdAt), index().on(t.status)],
 );

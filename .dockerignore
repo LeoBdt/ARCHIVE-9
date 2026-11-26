@@ -8,3 +8,5 @@
 docs
 notes
 *.md
+# The bot reads its own documentation
+!docs/ARCHITECTURE.md

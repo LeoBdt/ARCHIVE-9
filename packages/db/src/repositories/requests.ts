@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Database } from "../client.ts";
 import { siteRequests, type RequestStep } from "../schema.ts";
 
-export const REQUEST_KINDS = ["fact_edit", "fact_remove", "mind_comment", "skill_create", "skill_edit"] as const;
+export const REQUEST_KINDS = ["fact_edit", "fact_remove", "mind_comment", "skill_create", "skill_edit", "cleanup"] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 /** Requests one person may send from the site in 24 hours. */

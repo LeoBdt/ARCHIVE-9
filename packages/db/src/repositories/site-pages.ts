@@ -100,8 +100,9 @@ export async function dossier(db: Database, memberId: string) {
         channelId: source.channelId,
         messageId: sql<string | null>`${profileFacts.sourceMessageIds}[1]`,
         archived: sql<boolean>`${source.id} is not null`,
-        // F001, F002…: its rank in the dossier, history included, so it never changes.
-        number: sql<number>`(select count(*)::int from profile_facts o where o.member_id = ${profileFacts.memberId} and (o.created_at, o.id) <= (${profileFacts.createdAt}, ${profileFacts.id}))`,
+        ref: profileFacts.ref,
+        // F001, F002…: its rank among the current fragments, so the last one is the count.
+        number: sql<number>`(select count(*)::int from profile_facts o where o.member_id = ${profileFacts.memberId} and o.superseded_by is null and o.deleted_at is null and (o.number, o.created_at) <= (${profileFacts.number}, ${profileFacts.createdAt}))`,
         createdAt: profileFacts.createdAt,
         // The member's (or an admin's) correction that produced this fact, if any.
         corrected: sql<{ at: string; by: string | null; reason: string } | null>`(
@@ -148,7 +149,9 @@ export async function dossier(db: Database, memberId: string) {
       sourceMessageId: archived ? messageId : null,
       source: sourceLink(guildId, channelId, messageId),
     })),
-    categories: categories.map((c) => ({ key: c.key, label: c.label, color: c.color, createdBy: c.createdBy, createdAt: c.createdAt })),
+    categories: categories
+      .filter((c) => c.memberId === null || c.memberId === memberId)
+      .map((c) => ({ key: c.key, label: c.label, color: c.color, createdBy: c.createdBy, createdAt: c.createdAt, personal: c.memberId !== null, reason: c.reason })),
     events: events.slice(0, 12),
     affinityHistory: affinityHistory(relation?.affinity ?? 0, events, 30),
     history: relationHistory({ affinity: relation?.affinity ?? 0, trust: relation?.trust ?? 50 }, events, 30),
@@ -233,8 +236,8 @@ export async function relationsOverview(db: Database) {
       affinity: relationships.affinity,
       trust: relationships.trust,
       feeling: relationships.feeling,
-      week: sql<number>`coalesce((select sum(e.affinity_delta)::int from relationship_events e where e.member_id = ${members.id} and e.created_at >= ${iso}::timestamptz), 0)`,
-      weekTrust: sql<number>`coalesce((select sum(e.trust_delta)::int from relationship_events e where e.member_id = ${members.id} and e.created_at >= ${iso}::timestamptz), 0)`,
+      week: sql<number>`coalesce((select sum(e.affinity_delta)::float8 from relationship_events e where e.member_id = ${members.id} and e.created_at >= ${iso}::timestamptz), 0)`,
+      weekTrust: sql<number>`coalesce((select sum(e.trust_delta)::float8 from relationship_events e where e.member_id = ${members.id} and e.created_at >= ${iso}::timestamptz), 0)`,
       changedAt: relationships.updatedAt,
     })
     .from(relationships)
@@ -360,7 +363,10 @@ const authorName = sql<string>`coalesce(${author.displayName}, ${author.username
 
 /** Its replies with their « why » and the cost of each run. DMs only for their member, or admins. */
 export async function replyJournal(db: Database, viewer: { id: string; isAdmin: boolean }, limit = 60) {
-  const dm = viewer.isAdmin ? sql`true` : sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id})`;
+  // Admins see DMs too, except those of someone who made theirs private.
+  const dm = viewer.isAdmin
+    ? sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id} or coalesce((${decisions.details}->>'private')::boolean, false) = false)`
+    : sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id})`;
   const rows = await db
     .select({
       id: decisions.id,
@@ -440,7 +446,8 @@ export async function learnedJournal(db: Database, publicChannels: ReadonlySet<s
         content: fact.content,
         reporter: sql<string | null>`coalesce(${reporter.displayName}, ${reporter.username})`,
         current: sql<boolean>`${fact.supersededBy} is null and ${fact.deletedAt} is null`,
-        number: sql<number>`(select count(*)::int from profile_facts o where o.member_id = ${fact.memberId} and (o.created_at, o.id) <= (${fact.createdAt}, ${fact.id}))`,
+        ref: fact.ref,
+        number: sql<number>`(select count(*)::int from profile_facts o where o.member_id = ${fact.memberId} and o.superseded_by is null and o.deleted_at is null and (o.number, o.created_at) <= (${fact.number}, ${fact.createdAt}))`,
         createdAt: fact.createdAt,
         sourceId: source.id,
         sourceGuildId: source.guildId,
@@ -484,6 +491,8 @@ export async function learnedJournal(db: Database, publicChannels: ReadonlySet<s
         color: factCategories.color,
         reason: factCategories.reason,
         createdAt: factCategories.createdAt,
+        memberId: factCategories.memberId,
+        owner: sql<string | null>`(select coalesce(m.display_name, m.username) from members m where m.id = ${factCategories.memberId})`,
         count: sql<number>`(select count(*)::int from profile_facts f where f.category = ${factCategories.key} and f.superseded_by is null and f.deleted_at is null)`,
       })
       .from(factCategories)
@@ -533,7 +542,10 @@ export async function learnedJournal(db: Database, publicChannels: ReadonlySet<s
 /** Every triage decision lately, with what it read and how it reasoned, and the day's counts. */
 export async function triageJournal(db: Database, viewer: { id: string; isAdmin: boolean }, limit = 80) {
   const since = new Date(Date.now() - DAY_MS);
-  const dm = viewer.isAdmin ? sql`true` : sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id})`;
+  // Admins see DMs too, except those of someone who made theirs private.
+  const dm = viewer.isAdmin
+    ? sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id} or coalesce((${decisions.details}->>'private')::boolean, false) = false)`
+    : sql`(${decisions.guildId} is not null or ${decisions.authorId} = ${viewer.id})`;
   const [rows, [counts], ignored] = await Promise.all([
     db
       .select({
@@ -704,7 +716,7 @@ export async function systemOverview(db: Database) {
 /** Members the owner can name admin, with who already is. */
 export async function accessList(db: Database) {
   return db
-    .select({ id: members.id, name: memberName, avatar: members.avatar, isAdmin: sql<boolean>`exists (select 1 from site_admins a where a.member_id = ${members.id})` })
+    .select({ id: members.id, name: memberName, username: members.username, avatar: members.avatar, isAdmin: sql<boolean>`exists (select 1 from site_admins a where a.member_id = ${members.id})` })
     .from(members)
     .where(and(isNull(members.optedOutAt), eq(members.isServer, false), eq(members.isBot, false), eq(members.inGuild, true)))
     .orderBy(asc(memberName));

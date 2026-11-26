@@ -10,7 +10,12 @@ const db = vi.hoisted(() => ({
   getAction: vi.fn(),
   claimPending: vi.fn(() => Promise.resolve({ id: "a1" })),
   finishAction: vi.fn(() => Promise.resolve()),
-  currentFacts: vi.fn(() => Promise.resolve([{ id: "f1", content: "Joue à CS2.", nature: "fact" }, { id: "f2", content: "A inventé un faux opt-out.", nature: "fact" }])),
+  dossierFacts: vi.fn(() =>
+    Promise.resolve([
+      { id: "f1", ref: "K7QX3M", rank: 1, content: "Joue à CS2.", nature: "fact" },
+      { id: "f2", ref: "B30X09", rank: 2, content: "A inventé un faux opt-out.", nature: "fact" },
+    ]),
+  ),
   forgetOwnFacts: vi.fn(() => Promise.resolve(["A inventé un faux opt-out."])),
   correctOwnFact: vi.fn(() => Promise.resolve({ before: "Joue à CS2.", after: "Joue à CS2 et Valorant." })),
   addFeedback: vi.fn(() => Promise.resolve(true)),
@@ -216,9 +221,11 @@ describe("own profile tools", () => {
   it("lists the requester's facts and removes the ones named, with the reason", async () => {
     const { ctx } = setup();
     const tools = createProfileTools(ctx);
-    expect(await tools.myFacts.execute({}, opts)).toMatchObject({ facts: [{ ref: "F1" }, { ref: "F2", content: "A inventé un faux opt-out." }] });
+    expect(await tools.myFacts.execute({}, opts)).toMatchObject({ count: 2, facts: [{ rank: "F001", id: "#K7QX3M" }, { rank: "F002", content: "A inventé un faux opt-out." }] });
     expect(await tools.forgetMyFacts.execute({ refs: ["F2", "F9"], reason: "c'était un test" }, opts)).toMatchObject({ ok: true });
-    expect(db.forgetOwnFacts).toHaveBeenCalledWith(expect.anything(), "req", ["f2"], "c'était un test", "discord");
+    expect(await tools.forgetMyFacts.execute({ refs: ["#b30x09"], reason: "c'était un test" }, opts)).toMatchObject({ ok: true });
+    expect(db.forgetOwnFacts).toHaveBeenNthCalledWith(1, expect.anything(), "req", ["f2"], "c'était un test", "discord");
+    expect(db.forgetOwnFacts).toHaveBeenNthCalledWith(2, expect.anything(), "req", ["f2"], "c'était un test", "discord");
   });
 
   it("replaces a fact by the person's own version, without contact details", async () => {

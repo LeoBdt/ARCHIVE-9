@@ -12,7 +12,7 @@ import { buildStatusPrompt, cleanStatus, writeStatus } from "./status.ts";
 import { buildTriagePrompt, triage } from "./triage.ts";
 
 const chain = parseRoute("groq:main");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
 
 describe("triage", () => {
   const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "" };
@@ -82,7 +82,7 @@ describe("buildReplyPrompt", () => {
       selfState: { mood: "grognon", opinions: ["le café est surcoté"], runningJokes: ["Tom et ses retards"], notes: "rien" },
     });
     expect(prompt).not.toContain("premier échange");
-    expect(prompt).toContain("affinité 40/100, confiance 70/100, ressenti : complice");
+    expect(prompt).toContain("affinité 40 (de -50 à 50), confiance 70 (de 0 à 50), ressenti : complice");
     expect(prompt).toContain("Fiche : aime le café");
     expect(prompt).toContain("(question au groupe)");
     expect(prompt).toContain("tu interviens de toi-même");

@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { INITIAL_SELF_STATE, reflect } from "@archive-9/ai";
-import { applySelfStateChange, groupConversations, SELF_STATE_LIMITS } from "@archive-9/core";
+import { checkSkill, INITIAL_SELF_STATE, reflect, type SelfSkill } from "@archive-9/ai";
+import { applySelfStateChange, checkSkillDraft, groupConversations, SELF_STATE_LIMITS, SKILL_LIMITS } from "@archive-9/core";
 import {
+  activeSkills,
+  addNotes,
+  notebookForReflection,
   applyAnalysis,
+  createSkill,
+  difficultiesSince,
+  findActiveSkill,
+  skillCounts,
   currentSelfState,
   factsSince,
   lastReflectionAt,
@@ -63,12 +70,15 @@ async function reflectOn(deps: LearningDeps, mode: Mode, since: Date, keepSelfSt
     return false;
   }
 
-  const [server, state, learned, changes, feedback] = await Promise.all([
+  const [server, state, learned, changes, feedback, difficulties, skills, notebook] = await Promise.all([
     loadServerContext(db, deps.server),
     currentSelfState(db, INITIAL_SELF_STATE),
     factsSince(db, since, config.facts),
     mode !== "awakening" ? relationshipEventsSince(db, since, 30) : Promise.resolve([]),
     mode === "evening" ? pendingFeedback(db) : Promise.resolve([]),
+    mode === "evening" ? difficultiesSince(db, since) : Promise.resolve([]),
+    mode === "evening" ? activeSkills(db) : Promise.resolve([]),
+    mode === "evening" ? notebookForReflection(db) : Promise.resolve([]),
   ]);
   const picked = pickConversations(messages, config.maxMessages, mode);
   const people = new Set(picked.flat().flatMap((m) => [m.authorId, ...m.mentionedIds]));
@@ -86,6 +96,9 @@ async function reflectOn(deps: LearningDeps, mode: Mode, since: Date, keepSelfSt
     learned: learned.map((f) => ({ name: f.memberName, nature: f.nature, content: f.content })),
     relationshipChanges: changes.map((r) => ({ name: r.memberName, affinityDelta: r.affinityDelta, trustDelta: r.trustDelta, reason: r.reason })),
     feedback: feedback.map((f) => ({ name: f.authorName, trust: f.trust, content: f.content, about: f.about })),
+    difficulties,
+    skills: skills.map((k) => ({ name: k.name, rule: k.rule })),
+    notebook,
   });
   const runId = randomUUID();
   await recordAiUsage(db, outcome.usage.map((record) => ({ ...record, runId, detail: mode })));
@@ -116,9 +129,37 @@ async function reflectOn(deps: LearningDeps, mode: Mode, since: Date, keepSelfSt
       label,
     );
   }
+  if (mode === "evening") {
+    await addNotes(db, outcome.notes, label);
+    if (outcome.newSkill) await giveItselfSkill(deps, outcome.newSkill);
+  }
   await notify(db, { type: "self_state", version });
   log.info({ mode, version, label, mood: next.mood }, "reflection saved");
+  if (next.icon && deps.onFace) {
+    await deps.onFace(next.icon).catch((err: unknown) => {
+      log.warn({ err }, "face not shown on Discord");
+    });
+  }
   return true;
+}
+
+/** A skill it decided to give itself: the same checks as a member's, with itself as author. */
+async function giveItselfSkill(deps: LearningDeps, skill: SelfSkill): Promise<void> {
+  const { db, ai, log, selfId } = deps;
+  const check = checkSkillDraft({ name: skill.name, kind: skill.kind, triggers: skill.triggers, rule: skill.rule });
+  if (!check.ok) {
+    log.info({ name: skill.name, reason: check.reason }, "own skill refused");
+    return;
+  }
+  const counts = await skillCounts(db, selfId);
+  if (counts.byAuthor >= SKILL_LIMITS.perMember || counts.total >= SKILL_LIMITS.total) return;
+  if (check.draft.kind === "permanent" && counts.permanent >= SKILL_LIMITS.permanent) return;
+  if (await findActiveSkill(db, check.draft.name)) return;
+  const { verdict, usage } = await checkSkill(ai, check.draft);
+  await recordAiUsage(db, usage.map((u) => ({ ...u, runId: randomUUID(), detail: `vérification de skill : ${verdict.ok ? "acceptée" : verdict.reason}` })));
+  if (!verdict.ok) return;
+  const id = await createSkill(db, check.draft, selfId);
+  if (id) log.info({ skillId: id, name: check.draft.name, why: skill.why }, "gave itself a skill");
 }
 
 /** The big evening reflection, over the last 24 hours. Returns false when nothing happened. */

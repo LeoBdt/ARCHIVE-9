@@ -54,7 +54,7 @@ const model = new MockLanguageModelV4({
             { memberId: "500000000000000000", category: "games", nature: "fact", confidence: 0.8, content: "On y débat de CS2.", sourceMessageIds: ["m1"], reportedBy: null, replaces: null },
           ],
           retractions: [],
-          relationships: [{ memberId: "1", affinityDelta: 2, trustDelta: 1, reason: "sympa", sourceMessageId: "m2", feeling: "complice", howTheyTreatMe: null }],
+          relationships: [{ memberId: "1", affinityDelta: 0.2, trustDelta: 0.1, reason: "sympa", sourceMessageId: "m2", feeling: "complice", howTheyTreatMe: null }],
         }),
       );
     }
@@ -63,7 +63,7 @@ const model = new MockLanguageModelV4({
 });
 
 const chain = parseRoute("openrouter:mock");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
 
 describe.skipIf(!url)("learning cycle", () => {
   let conn: ReturnType<typeof createDb>;
@@ -80,6 +80,7 @@ describe.skipIf(!url)("learning cycle", () => {
       ai: new AiRuntime(routes, () => ({ model, providerOptions: {} })),
       log: pino({ level: "silent" }),
       selfId: SELF,
+      tidyDryRun: () => true,
       timezone: "Europe/Paris",
       channelName: () => "général",
       server: { id: "500000000000000000" },
@@ -108,13 +109,13 @@ describe.skipIf(!url)("learning cycle", () => {
 
     const overview = await profileOverview(conn.db, "1");
     expect(overview).toMatchObject({ summary: "Joueur de CS2.", tagline: "Il vise mieux qu'il ne parle.", factCount: 1 });
-    expect(overview.relationship).toMatchObject({ affinity: 2, trust: 51, feeling: "complice" });
+    expect(overview.relationship).toMatchObject({ affinity: 0.2, trust: 25.1, feeling: "complice" });
     expect((await pendingStats(conn.db, SELF)).maxPerMember).toBe(1);
 
     const facts = await currentFacts(conn.db, "1", 10);
     const text = formatProfile("Tom", "1", overview, facts);
     expect(text).toContain("> Il vise mieux qu'il ne parle.");
-    expect(text).toContain("affinité 2/100 · confiance 51/100 · complice");
+    expect(text).toContain("affinité 0.2 (−50 à 50) · confiance 25.1/50 · complice");
     expect(text).toContain("- Joue à CS2.");
   });
 
@@ -160,6 +161,8 @@ describe("formatProfile", () => {
   it("labels facts and stays under 2000 characters", () => {
     const fact = (i: number, nature: "reported" | "probable_joke" | "inference") => ({
       id: String(i),
+      ref: `REF${String(i).padStart(3, "0")}`,
+      number: i,
       memberId: "2",
       category: "other" as const,
       nature,
