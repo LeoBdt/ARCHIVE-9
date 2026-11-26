@@ -19,3 +19,4 @@ export * from "./release.ts";
 export * from "./fragments.ts";
 export * from "./search.ts";
 export * from "./sprite.ts";
+export * from "./voice.ts";

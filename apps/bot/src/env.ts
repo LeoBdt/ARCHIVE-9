@@ -62,6 +62,10 @@ const schema = z.object({
   EMBEDDING_MODEL: z.string().default("baai/bge-m3"),
 
   ANALYSIS_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
+  /** Its voice: the Piper container. Unset: it can't join voice channels. */
+  PIPER_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
+  /** Speech recognition in voice channels, over 24 h. */
+  VOICE_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.2),
   /** Looking at images, over 24 h. */
   VISION_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
   /** Past this over 24 h, only humans who mention or reply get an answer, from free models. */
@@ -86,6 +90,7 @@ export function routesFrom(env: Env) {
     reflection: env.AI_ROUTE_REFLECTION,
     vision: env.AI_ROUTE_VISION,
     embedding: env.AI_ROUTE_ANALYSIS,
+    voice: env.AI_ROUTE_TRIAGE,
   };
 }
 

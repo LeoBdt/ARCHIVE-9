@@ -62,6 +62,7 @@ import type { SettingsStore } from "./settings.ts";
 import { createReplyTools } from "./tools/index.ts";
 import { imagesOf } from "./ingest.ts";
 import { describeImage, describePending, visionAllowed, type VisionDeps } from "./vision.ts";
+import type { VoiceManager } from "./voice/session.ts";
 
 export interface PipelineDeps {
   db: Database;
@@ -83,6 +84,7 @@ export interface PipelineDeps {
   siteUrl: string | null;
   vision: VisionDeps;
   embedding?: EmbeddingConfig;
+  voice?: VoiceManager;
 }
 
 type TriageDetails = NonNullable<DecisionDetails["triage"]>;
@@ -533,6 +535,7 @@ export class Pipeline {
             findMembers: directory.find,
             saveUsage: (usage, detail) => this.saveUsage(run.runId, usage, { detail }),
             embedding: this.deps.embedding,
+            voice: this.deps.voice,
           }),
         }),
         { freeOnly: overBudget },
