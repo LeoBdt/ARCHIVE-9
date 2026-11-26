@@ -16,4 +16,3 @@ export * from "./site-tasks.ts";
 export * from "./tidy.ts";
 export * from "./vision.ts";
 export * from "./embeddings.ts";
-export * from "./hearing.ts";

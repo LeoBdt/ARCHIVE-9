@@ -12,13 +12,10 @@
     "@archive-9/ai": "workspace:*",
     "@archive-9/core": "workspace:*",
     "@archive-9/db": "workspace:*",
-    "@discordjs/voice": "0.19.2",
     "ai": "^7.0.179",
     "discord.js": "^14.28.1",
     "omggif": "1.0.10",
-    "opusscript": "0.1.1",
     "pino": "^10.4.0",
-    "prism-media": "1.3.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {
