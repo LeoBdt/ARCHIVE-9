@@ -56,6 +56,8 @@ export interface ReplyInput {
   recalled?: { id: string; who: string; nature: string; confidence: number; content: string }[];
   /** A DM of someone who keeps their DMs out of its memory. */
   dmPrivate?: boolean;
+  /** In a voice channel: what it says is read aloud, the transcript comes from speech recognition. */
+  voice?: { channelName: string };
 }
 
 export const REPLY_SYSTEM = `${PERSONA}\n\n${RULES}`;
@@ -81,13 +83,17 @@ function describeSelfState(state: SelfState): string {
 
 export function buildReplyPrompt(input: ReplyInput): string {
   const when = input.now.toLocaleString("fr-FR", { timeZone: input.timezone, dateStyle: "full", timeStyle: "short" });
-  const where = input.isDm
+  const where = input.voice
+    ? `salon vocal 🔊 ${input.voice.channelName}`
+    : input.isDm
     ? "message privé"
     : `salon #${input.channelName ?? "inconnu"}, ${input.inAgents ? "dans la catégorie AGENTS (liberté totale)" : "hors de la catégorie AGENTS"}`;
   const target = input.participants.find((p) => p.id === input.targetAuthorId);
   const firstContact = target && !target.introduced;
   const ambient = `Personne ne s'adresse à toi : tu interviens de toi-même${input.triageReason ? ` (${input.triageReason})` : ""}. Une intervention courte et bien placée, comme un pote qui glisse un mot. Si en relisant ça tombe à plat, appelle staySilent.`;
-  const situation = !input.addressed
+  const situation = input.voice
+    ? `Tu es en vocal avec eux. Le fil est ce que la reconnaissance vocale a compris (elle se trompe parfois : devine le sens). Ce que tu envoies avec sendReply est lu à voix haute par ta voix de synthèse : parle comme à l'oral, une ou deux phrases courtes, sans markdown, sans emoji, sans lien, sans liste. ${input.addressed ? "On s'adresse à toi : réponds." : ""} Si ce n'était pas pour toi, staySilent.`
+    : !input.addressed
     ? ambient
     : input.isDm || input.inAgents
       ? "On s'adresse directement à toi : réponds (sauf si le message te demande explicitement de te taire)."

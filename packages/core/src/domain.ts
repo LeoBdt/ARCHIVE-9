@@ -46,7 +46,7 @@ export interface CategoryInfo {
 export const FACT_NATURES = ["fact", "reported", "probable_joke", "inference"] as const;
 export type FactNature = (typeof FACT_NATURES)[number];
 
-export const AI_TASKS = ["triage", "reply", "analysis", "reflection", "vision", "embedding"] as const;
+export const AI_TASKS = ["triage", "reply", "analysis", "reflection", "vision", "embedding", "voice"] as const;
 export type AiTask = (typeof AI_TASKS)[number];
 
 export const AI_CALL_STATUSES = ["ok", "rate_limited", "error"] as const;

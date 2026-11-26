@@ -8,7 +8,7 @@ import { mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 import { seeImage } from "./vision.ts";
 
 const route = parseRoute("openrouter:main");
-const routes: Routes = { triage: route, reply: route, analysis: route, reflection: route, vision: route, embedding: route };
+const routes: Routes = { triage: route, reply: route, analysis: route, reflection: route, vision: route, embedding: route, voice: route };
 const runtime = (answer: string) => new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text(answer))) }));
 const config = { apiKey: "k", model: "baai/bge-m3", baseUrl: "https://example.test" };
 const reply = (status: number, body: unknown) => () => Promise.resolve(new Response(JSON.stringify(body), { status }));

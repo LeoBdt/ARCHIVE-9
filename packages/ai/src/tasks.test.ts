@@ -12,7 +12,7 @@ import { buildStatusPrompt, cleanStatus, writeStatus } from "./status.ts";
 import { buildTriagePrompt, triage } from "./triage.ts";
 
 const chain = parseRoute("groq:main");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain, voice: chain };
 
 describe("triage", () => {
   const input = { transcript: "[Tom (ID 1)] : archive t'en penses quoi ?", channelName: "général", conversationNote: "" };
