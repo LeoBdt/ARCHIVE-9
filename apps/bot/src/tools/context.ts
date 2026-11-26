@@ -1,4 +1,4 @@
-import type { AiRuntime, UsageRecord } from "@archive-9/ai";
+import type { AiRuntime, EmbeddingConfig, UsageRecord } from "@archive-9/ai";
 import type { Database, DirectoryMember } from "@archive-9/db";
 import { PermissionFlagsBits, type Guild, type GuildMember, type Message, type SendableChannels } from "discord.js";
 import type { SendState } from "../discord/send-tools.ts";
@@ -26,6 +26,8 @@ export interface ToolContext {
   directory: ReadonlyMap<string, DirectoryMember>;
   findMembers: (query: string, limit?: number) => string[];
   saveUsage: (usage: UsageRecord[], detail: string) => Promise<void>;
+  /** Search by meaning; absent when there is no vector index. */
+  embedding?: EmbeddingConfig;
 }
 
 export type ToolResult = Record<string, unknown>;

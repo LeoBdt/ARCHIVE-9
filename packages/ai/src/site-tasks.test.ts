@@ -3,11 +3,12 @@ import { INITIAL_SELF_STATE } from "./canned.ts";
 import { reflect } from "./reflection.ts";
 import { parseRoute } from "./routes.ts";
 import { AiRuntime, type Routes } from "./runtime.ts";
-import { answerMindComment, buildCorrectionPrompt, buildSkillRequestPrompt, planCorrection, planSkill, planTidy, writeChangelog } from "./site-tasks.ts";
+import { answerMindComment, buildCorrectionPrompt, buildSkillRequestPrompt, planCorrection, planSkill, writeChangelog } from "./site-tasks.ts";
+import { buildDossierTidyPrompt, checkDossierTidy, planDossierTidy } from "./tidy.ts";
 import { mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 
 const route = parseRoute("openrouter:main");
-const routes: Routes = { triage: route, reply: route, analysis: route, reflection: route };
+const routes: Routes = { triage: route, reply: route, analysis: route, reflection: route, vision: route, embedding: route };
 const runtime = (output: unknown) => new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text(JSON.stringify(output)))) }));
 const broken = () => new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text("pas du JSON"))) }));
 
@@ -80,18 +81,62 @@ describe("the changelog", () => {
   });
 });
 
-describe("tidying the drawers", () => {
-  it("only opens what it may and moves to drawers that exist", async () => {
-    const outcome = await planTidy(
-      runtime({ create: [{ label: "Cuisine", why: "plusieurs fragments", refs: ["f1", "F2", "F3", "F9"] }, { label: "Trop", why: "x", refs: [] }], moves: [{ ref: "F4", to: "games" }, { ref: "F4", to: "nope" }] }),
+describe("tidying a dossier", () => {
+  const day = new Date("2026-11-20T12:00:00Z");
+  const fact = (rank: number, nature: "fact" | "probable_joke" = "fact", category = "other") => ({
+    id: `id${String(rank)}`,
+    rank,
+    category,
+    nature,
+    confidence: 0.8,
+    content: `fragment ${String(rank)}`,
+    sources: 1,
+    reportedByName: null,
+    createdAt: day,
+  });
+  const input = {
+    name: "Léa",
+    isServer: false,
+    summary: null,
+    facts: [fact(1), fact(2), fact(3, "probable_joke"), fact(4), fact(5), fact(6), fact(7)],
+    drawers: [
+      { key: "games", label: "Jeux", personal: false, count: 0 },
+      { key: "other", label: "Divers", personal: false, count: 7 },
+    ],
+    room: 1,
+    lookalikes: [["id1", "id2"]] as [string, string][],
+    timezone: "Europe/Paris",
+  };
+
+  it("lists the dossier with its ranks and the lookalike pairs", () => {
+    const prompt = buildDossierTidyPrompt(input);
+    expect(prompt).toContain("F001 ~ F002");
+    expect(prompt).toContain("F007 · other · fait");
+  });
+
+  it("keeps one operation per fragment, known drawers and merges within one nature", () => {
+    const checked = checkDossierTidy(
       {
-        categories: [{ key: "games", label: "Jeux", count: 3 }],
-        facts: ["F1", "F2", "F3", "F4"].map((ref) => ({ ref, category: "other", content: "x" })),
-        room: 1,
+        merges: [
+          { keep: "F1", remove: ["F2"], content: null, why: "même chose" },
+          { keep: "F4", remove: ["F3"], content: null, why: "une blague et un fait" },
+        ],
+        deletes: [{ ref: "F2", why: "déjà fusionné" }, { ref: "F9", why: "inconnu" }],
+        rewrites: [{ ref: "F4", content: "mieux dit", why: "plus clair" }],
+        moves: [{ ref: "F4", to: "games", why: "déjà réécrit" }, { ref: "F5", to: "nope", why: "x" }, { ref: "f005", to: "games", why: "un jeu" }],
+        drawers: [{ label: "Sa moto", why: "trois fragments", refs: ["F5", "F6", "F7"] }],
       },
+      input,
     );
-    expect(outcome.value).toEqual({ create: [{ label: "Cuisine", why: "plusieurs fragments", refs: ["F1", "F2", "F3"] }], moves: [{ ref: "F4", to: "games" }] });
-    expect((await planTidy(broken(), { categories: [], facts: [], room: 0 })).value).toBeNull();
+    expect(checked.merges).toEqual([{ keepId: "id1", removeIds: ["id2"], content: null, why: "même chose" }]);
+    expect(checked.deletes).toEqual([]);
+    expect(checked.rewrites).toEqual([{ factId: "id4", content: "mieux dit", why: "plus clair" }]);
+    expect(checked.drawers).toEqual([{ label: "Sa moto", why: "trois fragments", factIds: ["id5", "id6", "id7"] }]);
+    expect(checked.moves).toEqual([]);
+  });
+
+  it("returns no plan when every model fails", async () => {
+    expect((await planDossierTidy(broken(), input)).plan).toBeNull();
   });
 });
 

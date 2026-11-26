@@ -91,6 +91,8 @@ function FactCard({ fact, label, onEdit, onSource }: { fact: Fact; label: string
       </div>
       <p>{fact.content}</p>
       <div className="card-dates">
+        <span className="card-ref">#{fact.ref}</span>
+        <br />
         noté {when(fact.createdAt)}
         {fact.corrected && (
           <>
@@ -164,9 +166,9 @@ function Relation({ data, onSource }: { data: DossierData; onSource: (id: string
           { key: "affinity", label: "affinité", color: "var(--red)", format: signed },
           { key: "trust", label: "confiance", color: "var(--blue)" },
         ]}
-        min={Math.min(-20, ...data.history.map((h) => h.affinity)) - 5}
-        max={100}
-        ticks={[0, 50, 100]}
+        min={Math.floor(Math.min(-5, ...data.history.map((h) => h.affinity))) - 1}
+        max={Math.ceil(Math.max(30, ...data.history.flatMap((h) => [h.affinity, h.trust]))) + 2}
+        ticks={[0, 25]}
         label={`Affinité et confiance sur 30 jours : affinité ${signed(r.affinity)}, confiance ${String(r.trust)} aujourd'hui`}
       />
       <h3 className="label">Derniers événements</h3>
@@ -207,7 +209,7 @@ export function Dossier() {
     return (
       <main className="page">
         <p className="empty">Aucun dossier ici. Soit je ne connais pas cette personne, soit elle a quitté mes archives.</p>
-        <Link to="/archives">← Les archives</Link>
+        <Link to="/dossiers">← Les dossiers</Link>
       </main>
     );
   }
@@ -221,7 +223,11 @@ export function Dossier() {
     .map(({ c, facts }) => ({
       key: c.key,
       label: c.label.toUpperCase(),
-      sublabel: c.createdBy === "archive-9" && c.createdAt ? `tiroir créé par moi le ${dayMonth(c.createdAt)}` : undefined,
+      sublabel: c.personal && c.createdAt
+        ? `tiroir perso, ouvert le ${dayMonth(c.createdAt)}`
+        : c.createdBy === "archive-9" && c.createdAt
+          ? `tiroir créé par moi le ${dayMonth(c.createdAt)}`
+          : undefined,
       color: c.color,
       count: facts.length,
       content: (

@@ -32,7 +32,7 @@ const BY: Record<Sort, (a: DossierSummary, b: DossierSummary) => number> = {
 
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-export function Archives() {
+export function Dossiers() {
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get("q") ?? "");
   const [sort, setSort] = useState<Sort>("changed");
@@ -50,15 +50,15 @@ export function Archives() {
   return (
     <main className="page" style={{ gap: 24 }}>
       <div className="section-head">
-        <h1 className="page-title">Les archives</h1>
+        <h1 className="page-title">Les dossiers</h1>
         <span className="meta strong">{data ? `${formatCount(list.length)} dossier${list.length > 1 ? "s" : ""}` : "…"}</span>
       </div>
       <div className="toolbar">
-        <label htmlFor="archives-q" className="sr-only">
+        <label htmlFor="dossiers-q" className="sr-only">
           Chercher dans les dossiers
         </label>
         <input
-          id="archives-q"
+          id="dossiers-q"
           type="search"
           className="search px-dim"
           placeholder="Nom, surnom, ancien pseudo…"
@@ -106,7 +106,7 @@ export function Archives() {
             <span>affinité · confiance</span>
           </div>
           {list.map((d, i) => (
-            <Link key={d.id} to={`/archives/${d.id}`} className="dossier-row px-dim appear" style={{ animationDelay: `${String(Math.min(i, 12) * 0.03)}s` }}>
+            <Link key={d.id} to={`/dossiers/${d.id}`} className="dossier-row px-dim appear" style={{ animationDelay: `${String(Math.min(i, 12) * 0.03)}s` }}>
               <Avatar id={d.id} name={d.name} hash={d.avatar} />
               <span className="cell-main">
                 <strong>
@@ -127,7 +127,7 @@ export function Archives() {
                   <span className="meta">pas encore</span>
                 ) : (
                   <>
-                    <span style={{ color: "var(--red-soft)" }}>{signed(d.affinity)}</span> · <span style={{ color: "var(--blue)" }}>{d.trust ?? 50}</span>
+                    <span style={{ color: "var(--red-soft)" }}>{signed(d.affinity)}</span> · <span style={{ color: "var(--blue)" }}>{d.trust ?? 25}</span>
                   </>
                 )}
               </span>

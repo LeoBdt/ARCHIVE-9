@@ -1,11 +1,16 @@
-import { applyAffinity, applyTrust, capDelta, type FactCategory, type FactNature } from "@archive-9/core";
+import { AFFINITY_RANGE, TRUST_RANGE, TRUST_START, applyAffinity, applyTrust, capDelta, type FactCategory, type FactNature } from "@archive-9/core";
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client.ts";
+import { supersedeFact } from "./fragments.ts";
 import { factCorrections, members, messages, profileFacts, profileSummaries, relationshipEvents, relationships } from "../schema.ts";
 
 export interface CurrentFact {
   id: string;
+  /** #K7QX3M */
+  ref: string;
+  /** Arrival order in the dossier; the F shown is the rank. */
+  number: number;
   memberId: string;
   category: FactCategory;
   nature: FactNature;
@@ -37,6 +42,8 @@ async function selectFacts(db: Database, where: ReturnType<typeof and>, limit: n
   return db
     .select({
       id: profileFacts.id,
+      ref: profileFacts.ref,
+      number: profileFacts.number,
       memberId: profileFacts.memberId,
       category: profileFacts.category,
       nature: profileFacts.nature,
@@ -157,13 +164,27 @@ export async function applyAnalysis(db: Database, write: AnalysisWrite): Promise
     for (const fact of write.facts) {
       if (optedOut.has(fact.memberId) || (fact.reportedBy && optedOut.has(fact.reportedBy))) continue;
       const { replacesId, ...values } = fact;
-      const [row] = await tx.insert(profileFacts).values(values).returning({ id: profileFacts.id });
-      if (row && replacesId) {
-        await tx
-          .update(profileFacts)
-          .set({ supersededBy: row.id, updatedAt: sql`now()` })
-          .where(and(eq(profileFacts.id, replacesId), eq(profileFacts.memberId, fact.memberId), isCurrent));
+      if (!replacesId) {
+        // Already known in other words: the existing fragment gets the new sources instead.
+        const twin = await nearDuplicate(tx, fact.memberId, fact.content);
+        if (twin) {
+          await tx
+            .update(profileFacts)
+            .set({
+              sourceMessageIds: sql`(select array(select distinct unnest(${profileFacts.sourceMessageIds} || ${sql.param(fact.sourceMessageIds)}::text[])))`,
+              confidence: sql`greatest(${profileFacts.confidence}, ${fact.confidence})`,
+              updatedAt: sql`now()`,
+            })
+            .where(eq(profileFacts.id, twin));
+          continue;
+        }
       }
+      // A new version keeps the number and reference of the one it replaces.
+      const [old] = replacesId
+        ? await tx.select({ id: profileFacts.id }).from(profileFacts).where(and(eq(profileFacts.id, replacesId), eq(profileFacts.memberId, fact.memberId), isCurrent))
+        : [];
+      if (old) await supersedeFact(tx, old.id, values);
+      else await tx.insert(profileFacts).values(values);
       touched.add(fact.memberId);
     }
 
@@ -181,8 +202,8 @@ export async function applyAnalysis(db: Database, write: AnalysisWrite): Promise
       if (optedOut.has(update.memberId)) continue;
       const [sums] = await tx
         .select({
-          affinity: sql<number>`coalesce(sum(${relationshipEvents.affinityDelta}), 0)::int`,
-          trust: sql<number>`coalesce(sum(${relationshipEvents.trustDelta}), 0)::int`,
+          affinity: sql<number>`coalesce(sum(${relationshipEvents.affinityDelta}), 0)::float8`,
+          trust: sql<number>`coalesce(sum(${relationshipEvents.trustDelta}), 0)::float8`,
         })
         .from(relationshipEvents)
         .where(
@@ -201,15 +222,15 @@ export async function applyAnalysis(db: Database, write: AnalysisWrite): Promise
         .values({
           memberId: update.memberId,
           affinity: applyAffinity(0, affinity),
-          trust: applyTrust(50, trust),
+          trust: applyTrust(TRUST_START, trust),
           feeling: update.feeling,
           howTheyTreatMe: update.howTheyTreatMe,
         })
         .onConflictDoUpdate({
           target: relationships.memberId,
           set: {
-            affinity: sql`greatest(-100, least(100, ${relationships.affinity} + ${affinity}))`,
-            trust: sql`greatest(0, least(100, ${relationships.trust} + ${trust}))`,
+            affinity: sql`greatest(${AFFINITY_RANGE.min}, least(${AFFINITY_RANGE.max}, ${relationships.affinity} + ${affinity}))`,
+            trust: sql`greatest(${TRUST_RANGE.min}, least(${TRUST_RANGE.max}, ${relationships.trust} + ${trust}))`,
             feeling: sql`coalesce(excluded.feeling, ${relationships.feeling})`,
             howTheyTreatMe: sql`coalesce(excluded.how_they_treat_me, ${relationships.howTheyTreatMe})`,
             updatedAt: sql`now()`,
@@ -310,14 +331,10 @@ export async function correctOwnFact(db: Database, memberId: string, factId: str
       .from(profileFacts)
       .where(and(eq(profileFacts.id, factId), eq(profileFacts.memberId, memberId), isCurrent));
     if (!old) return null;
-    const [created] = await tx
-      .insert(profileFacts)
-      .values({ memberId, category: old.category, nature: "fact", confidence: 0.95, content: newContent, sourceMessageIds: [] })
-      .returning({ id: profileFacts.id });
-    if (!created) return null;
-    await tx.update(profileFacts).set({ supersededBy: created.id, updatedAt: sql`now()` }).where(eq(profileFacts.id, old.id));
+    const newId = await supersedeFact(tx, old.id, { nature: "fact", confidence: 0.95, content: newContent, sourceMessageIds: [], reportedBy: null });
+    if (!newId) return null;
     await tx.insert(factCorrections).values({ memberId, factId: old.id, content: old.content, newContent, reason, source, by });
-    return { before: old.content, after: newContent, newId: created.id, category: old.category };
+    return { before: old.content, after: newContent, newId, category: old.category };
   });
 }
 
@@ -338,14 +355,33 @@ export async function recentCorrections(db: Database, memberIds: string[], perMe
   return result;
 }
 
-/** Members whose summary was written before their last correction: it still shows what they removed. */
+/**
+ * Members whose summary was written before a correction or a removal: it may still show what
+ * is gone (their own corrections, the tidy, /mp-prives).
+ */
 export async function summariesToRefresh(db: Database): Promise<string[]> {
   const rows = await db
-    .selectDistinct({ memberId: factCorrections.memberId })
-    .from(factCorrections)
-    .innerJoin(profileSummaries, eq(profileSummaries.memberId, factCorrections.memberId))
-    .where(sql`${profileSummaries.generatedAt} < ${factCorrections.createdAt}`);
+    .select({ memberId: profileSummaries.memberId })
+    .from(profileSummaries)
+    .where(
+      sql`exists (select 1 from ${factCorrections} c where c.member_id = ${profileSummaries.memberId} and c.created_at > ${profileSummaries.generatedAt})
+        or exists (select 1 from ${profileFacts} f where f.member_id = ${profileSummaries.memberId} and f.deleted_at > ${profileSummaries.generatedAt})`,
+    );
   return rows.map((r) => r.memberId);
+}
+
+/** Trigram likeness from which two fragments of one person count as the same thing said twice. */
+export const DUPLICATE_SIMILARITY = 0.6;
+
+/** A current fragment of this person saying nearly the same thing, if any. */
+export async function nearDuplicate(db: Pick<Database, "execute">, memberId: string, content: string): Promise<string | null> {
+  const rows = await db.execute<{ id: string }>(sql`
+    select id from profile_facts
+    where member_id = ${memberId} and superseded_by is null and deleted_at is null
+      and similarity(a9_unaccent(lower(content)), a9_unaccent(lower(${content}))) >= ${DUPLICATE_SIMILARITY}
+    order by similarity(a9_unaccent(lower(content)), a9_unaccent(lower(${content}))) desc
+    limit 1`);
+  return rows[0]?.id ?? null;
 }
 
 /** Whose profile a current fact belongs to, or undefined. */

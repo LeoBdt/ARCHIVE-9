@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { getJson, postJson, type AccessRow, type SettingsView, type Viewer } from "../api.ts";
 import { Avatar } from "../components/Avatar.tsx";
 import { Select } from "../components/Select.tsx";
 import { Sheet } from "../components/Sheet.tsx";
 import { Tabs } from "../components/Tabs.tsx";
+import { TechniqueTab } from "./Technique.tsx";
 
 const LEVELS = [
   ["observateur", "Il ne parle que quand on lui parle."],
@@ -137,6 +139,20 @@ function SettingsTab() {
         </label>
       </section>
 
+      <section className="panel px-dim">
+        <h2>Le rangement des dossiers</h2>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={data.tidyDryRun}
+            onChange={() => {
+              change(data.tidyDryRun ? "Laisser ARCHIVE-9 fusionner et supprimer seul ?" : "Repasser en mode d'essai ?", { tidyDryRun: !data.tidyDryRun });
+            }}
+          />
+          Mode d'essai : ses fusions et suppressions attendent l'accord d'un admin dans Technique
+        </label>
+      </section>
+
       <section className="panel px-dim span-all">
         <div className="section-head">
           <h2>Salons qu'il écoute</h2>
@@ -227,7 +243,8 @@ function AccessTab() {
     mutationFn: (row: AccessRow) => postJson("/api/access", { memberId: row.id, admin: !row.isAdmin }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["access"] }),
   });
-  const rows = (data ?? []).filter((r) => r.name.toLowerCase().includes(q.toLowerCase())).sort((a, b) => Number(b.isOwner) - Number(a.isOwner) || Number(b.isAdmin) - Number(a.isAdmin));
+  const needle = q.trim().toLowerCase();
+  const rows = (data ?? []).filter((r) => !needle || [r.name, r.username, r.id].some((v) => v.toLowerCase().includes(needle))).sort((a, b) => Number(b.isOwner) - Number(a.isOwner) || Number(b.isAdmin) - Number(a.isAdmin));
   return (
     <section aria-labelledby="acces" className="panel px-dim">
       <h2 id="acces">Qui peut régler ARCHIVE-9</h2>
@@ -248,7 +265,12 @@ function AccessTab() {
         {rows.map((r) => (
           <li key={r.id} className="access-row">
             <Avatar id={r.id} name={r.name} hash={r.avatar} size={32} />
-            <span className="grow">{r.name}</span>
+            <span className="grow" style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+              <span>{r.name}</span>
+              <span className="meta">
+                @{r.username} · {r.id}
+              </span>
+            </span>
             {(r.isOwner || r.isAdmin) && <span className="label small" style={{ color: r.isOwner ? "var(--red)" : "var(--text)" }}>{r.isOwner ? "PROPRIÉTAIRE" : "ADMIN"}</span>}
             {!r.isOwner && (
               <button type="button" className="button-ghost small" onClick={() => { setAsk(r); }}>
@@ -273,8 +295,16 @@ function AccessTab() {
   );
 }
 
+type AdminTab = "settings" | "technique" | "access";
+
+/** The admin space: settings, what goes on under the hood, and who is admin (owner only). */
 export function Settings({ viewer }: { viewer: Viewer }) {
-  const [tab, setTab] = useState<"settings" | "access">("settings");
+  const [params, setParams] = useSearchParams();
+  const asked = params.get("tab");
+  const tab: AdminTab = asked === "technique" || (asked === "access" && viewer.isOwner) ? asked : "settings";
+  const setTab = (next: AdminTab) => {
+    setParams(next === "settings" ? {} : { tab: next }, { replace: true });
+  };
   if (!viewer.isAdmin)
     return (
       <main className="soon">
@@ -282,22 +312,19 @@ export function Settings({ viewer }: { viewer: Viewer }) {
       </main>
     );
   return (
-    <main className="page">
-      <h1 className="page-title">Réglages</h1>
+    <main className="page cascade">
+      <h1 className="page-title">Admin</h1>
       <Tabs
-        label="Réglages"
+        label="Admin"
         value={tab}
         onChange={setTab}
-        tabs={
-          viewer.isOwner
-            ? [
-                ["settings", "Réglages"],
-                ["access", "Accès"],
-              ]
-            : [["settings", "Réglages"]]
-        }
+        tabs={[
+          ["settings", "Réglages"],
+          ["technique", "Technique"],
+          ...(viewer.isOwner ? ([["access", "Accès"]] as [AdminTab, string][]) : []),
+        ]}
       />
-      {tab === "settings" ? <SettingsTab /> : <AccessTab />}
+      {tab === "settings" ? <SettingsTab /> : tab === "technique" ? <TechniqueTab /> : <AccessTab />}
     </main>
   );
 }

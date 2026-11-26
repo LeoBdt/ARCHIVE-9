@@ -5,6 +5,7 @@ import { Avatar } from "./Avatar.tsx";
 
 const LINKS = [
   { to: "/", label: "Noyau" },
+  { to: "/dossiers", label: "Dossiers" },
   { to: "/archives", label: "Archives" },
   { to: "/relations", label: "Relations" },
   { to: "/esprit", label: "Esprit" },
@@ -12,6 +13,9 @@ const LINKS = [
   { to: "/journal", label: "Journal" },
   { to: "/systeme", label: "Système" },
 ];
+
+const ADMIN_LINKS = [{ to: "/admin", label: "Admin" }];
+const isAdminLink = (to: string) => ADMIN_LINKS.some((l) => l.to === to);
 
 function SearchBox({ className, id }: { className: string; id: string }) {
   const navigate = useNavigate();
@@ -40,16 +44,16 @@ function SearchBox({ className, id }: { className: string; id: string }) {
       }}
     >
       <label htmlFor={id} className="sr-only">
-        Chercher un dossier
+        Fouiller les archives
       </label>
-      <input id={id} ref={input} type="search" className="search px-dim" placeholder="Chercher un dossier…  /" style={{ width: "100%" }} />
+      <input id={id} ref={input} type="search" className="search px-dim" placeholder="Fouiller les archives…  /" style={{ width: "100%" }} />
     </form>
   );
 }
 
 export function Header({ viewer }: { viewer: Viewer }) {
   const [open, setOpen] = useState(false);
-  const links = viewer.isAdmin ? [...LINKS, { to: "/reglages", label: "Réglages" }] : LINKS;
+  const links = viewer.isAdmin ? [...LINKS, ...ADMIN_LINKS] : LINKS;
   return (
     <>
       <header className="top">
@@ -58,13 +62,13 @@ export function Header({ viewer }: { viewer: Viewer }) {
         </NavLink>
         <nav aria-label="Navigation principale" className="nav">
           {links.map((link) => (
-            <NavLink key={link.to} to={link.to} end={link.to === "/"} className={link.to === "/reglages" ? "admin" : undefined}>
+            <NavLink key={link.to} to={link.to} end={link.to === "/"} className={isAdminLink(link.to) ? "admin" : undefined}>
               {link.label}
             </NavLink>
           ))}
         </nav>
         <SearchBox className="search-desktop" id="search" />
-        <NavLink to={`/archives/${viewer.id}`} className="me px-dim" title="Ton dossier">
+        <NavLink to={`/dossiers/${viewer.id}`} className="me px-dim" title="Ton dossier">
           <Avatar id={viewer.id} name={viewer.name} hash={viewer.avatar} size={28} />
           {viewer.name}
         </NavLink>
@@ -95,8 +99,8 @@ export function Header({ viewer }: { viewer: Viewer }) {
         <NavLink to="/" end>
           Noyau
         </NavLink>
+        <NavLink to="/dossiers">Dossiers</NavLink>
         <NavLink to="/archives">Archives</NavLink>
-        <NavLink to="/journal">Journal</NavLink>
         <button
           type="button"
           aria-expanded={open}
@@ -120,7 +124,7 @@ export function Header({ viewer }: { viewer: Viewer }) {
               {link.label}
             </NavLink>
           ))}
-          <NavLink to={`/archives/${viewer.id}`}>Mon dossier</NavLink>
+          <NavLink to={`/dossiers/${viewer.id}`}>Mon dossier</NavLink>
           <a
             href="/acces"
             onClick={(event) => {

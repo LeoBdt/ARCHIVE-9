@@ -16,3 +16,6 @@ export * from "./transcript.ts";
 export * from "./version.ts";
 export * from "./outgoing.ts";
 export * from "./release.ts";
+export * from "./fragments.ts";
+export * from "./search.ts";
+export * from "./sprite.ts";

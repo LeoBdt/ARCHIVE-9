@@ -29,7 +29,8 @@ function sinceWhen(history: Esprit["history"], pick: (s: SelfStateView) => strin
 /** The next reflection, from the hours set by the admins. */
 function nextReflection(hours: { midday: number; evening: number }): string {
   const now = new Date();
-  const local = Number(now.toLocaleString("fr-FR", { hour: "2-digit", hourCycle: "h23", timeZone: "Europe/Paris" }));
+  // fr-FR writes « 14 h »: read the hour as a number, not the formatted text.
+  const local = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Europe/Paris" }).formatToParts(now).find((p) => p.type === "hour")?.value ?? 0);
   if (local < hours.midday) return `aujourd'hui ${hour(hours.midday)} (midi)`;
   if (local < hours.evening) return `aujourd'hui ${hour(hours.evening)} (soir)`;
   return `demain ${hour(hours.midday)} (midi)`;
@@ -76,12 +77,29 @@ function CommentSheet({ about, onClose }: { about: string; onClose: () => void }
   );
 }
 
-function Item({ text, since, from, canComment, onComment }: { text: string; since?: string; from?: string; canComment: boolean; onComment: () => void }) {
+/** Newest first, by when each entry first appeared. */
+function newestFirst(items: string[], since: Map<string, string>): string[] {
+  return [...items].sort((a, b) => (since.get(b) ?? "").localeCompare(since.get(a) ?? ""));
+}
+
+/** Its journal page by page: each reflection that rewrote it, newest first. */
+function journalPages(history: Esprit["history"]): { notes: string; at: string; from: string }[] {
+  const pages: { notes: string; at: string; from: string }[] = [];
+  for (const v of history) {
+    const notes = v.state.notes.trim();
+    if (!notes || pages.at(-1)?.notes === notes) continue;
+    pages.push({ notes, at: v.createdAt, from: v.source === "midday" ? "midi" : v.source === "reflection" ? "soir" : SOURCES[v.source] });
+  }
+  return pages;
+}
+
+function Item({ text, since, at, from, canComment, onComment }: { text: string; since?: string; at?: string; from?: string; canComment: boolean; onComment: () => void }) {
   return (
     <li className="mind-item">
       <p>{text}</p>
       <div className="row-wrap meta">
         {since && <span>depuis le {dayMonth(since)}</span>}
+        {at && <span>{when(at)}</span>}
         {from && <span>· {from}</span>}
         {canComment && (
           <button type="button" className="button-ghost small push-right" onClick={onComment}>
@@ -108,11 +126,15 @@ export function Mind({ viewer }: { viewer: Viewer }) {
   const state = current?.state;
   const opinionsSince = sinceWhen(data.history, (s) => s.opinions);
   const jokesSince = sinceWhen(data.history, (s) => s.runningJokes);
+  const journal = journalPages(data.history);
   const resolutions = state?.resolutions ?? [];
   const admin = viewer.isAdmin;
 
   return (
-    <main className="page">
+    <main className="page cascade">
+      <div className="section-head">
+        <h1 className="page-title">Ce que je suis devenu.</h1>
+      </div>
       <section aria-label="Mon état" className="px mind-hero">
         <Sprite cell={8} asleep={data.paused} mood={state?.icon} />
         <div className="stack-12 grow">
@@ -125,9 +147,8 @@ export function Mind({ viewer }: { viewer: Viewer }) {
             )}
             <span className="chip">prochaine : {nextReflection(data.reflectionHours)}</span>
           </div>
-          <h1 className="page-title">Ce que je suis devenu.</h1>
           {state && (
-            <div className="mood">
+            <div className="mood type-in">
               Humeur du moment : <span>{state.mood}</span>
             </div>
           )}
@@ -159,8 +180,8 @@ export function Mind({ viewer }: { viewer: Viewer }) {
             <h2>Mes opinions</h2>
             <span className="chip">le soir</span>
           </div>
-          <ul className="plain mind-list">
-            {(state?.opinions ?? []).map((o) => (
+          <ul className="plain mind-list scroll-box">
+            {newestFirst(state?.opinions ?? [], opinionsSince).map((o) => (
               <Item key={o} text={o} since={opinionsSince.get(o)} canComment={admin} onComment={() => { setComment(`opinion : ${o}`); }} />
             ))}
           </ul>
@@ -170,8 +191,8 @@ export function Mind({ viewer }: { viewer: Viewer }) {
             <h2>Mes blagues récurrentes</h2>
             <span className="chip">midi et soir</span>
           </div>
-          <ul className="plain mind-list">
-            {(state?.runningJokes ?? []).map((o) => (
+          <ul className="plain mind-list scroll-box">
+            {newestFirst(state?.runningJokes ?? [], jokesSince).map((o) => (
               <Item key={o} text={o} since={jokesSince.get(o)} canComment={admin} onComment={() => { setComment(`blague : ${o}`); }} />
             ))}
           </ul>
@@ -181,8 +202,20 @@ export function Mind({ viewer }: { viewer: Viewer }) {
             <h2>Mon journal</h2>
             <span className="chip">midi et soir</span>
           </div>
-          <ul className="plain mind-list">
-            <Item text={state?.notes.length ? state.notes : "Rien d'écrit pour l'instant."} since={current?.createdAt} canComment={admin && Boolean(state?.notes)} onComment={() => { setComment("mon journal"); }} />
+          <ul className="plain mind-list scroll-box">
+            {journal.length === 0 && <li className="empty">Rien d'écrit pour l'instant.</li>}
+            {journal.map((entry, i) => (
+              <Item
+                key={entry.at}
+                text={entry.notes}
+                at={entry.at}
+                from={entry.from}
+                canComment={admin && i === 0}
+                onComment={() => {
+                  setComment("mon journal");
+                }}
+              />
+            ))}
           </ul>
         </section>
       </div>

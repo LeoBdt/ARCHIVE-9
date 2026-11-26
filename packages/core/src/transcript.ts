@@ -14,6 +14,8 @@ export interface TranscriptMessage {
   replyToAuthorName?: string | null;
   replyToIsSelf?: boolean;
   reactions?: MessageReactions;
+  /** What its images show, as ARCHIVE-9 understood them. */
+  images?: string[];
   createdAt: Date;
 }
 
@@ -64,7 +66,8 @@ export function formatTranscript(messages: readonly TranscriptMessage[], options
       const target = m.id === options.targetId ? "  ◀ message cible" : "";
       const text = options.names ? resolveMentions(m.content, options.names) : m.content;
       const body = truncate(neutraliseForgedPrefixes(text.replace(/\s*\n\s*/g, " ⏎ ")), max);
-      return `${time(m.createdAt, timeZone)} #${m.id}${reply} [${who} (ID ${m.authorId})] : ${body}${formatReactions(m.reactions)}${target}`;
+      const images = (m.images ?? []).map((d) => ` [image : ${truncate(neutraliseForgedPrefixes(d.replace(/\s*\n\s*/g, " ")), 400)}]`).join("");
+      return `${time(m.createdAt, timeZone)} #${m.id}${reply} [${who} (ID ${m.authorId})] : ${body}${images}${formatReactions(m.reactions)}${target}`;
     })
     .join("\n");
 }

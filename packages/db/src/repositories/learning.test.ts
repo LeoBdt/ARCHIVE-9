@@ -144,17 +144,18 @@ describe.skipIf(!url)("learning repositories", () => {
 
     const profiles = await participantProfiles(db, ["1", "3", "unknown"], 5);
     const tom = profiles.find((p) => p.id === "1");
-    expect(tom).toMatchObject({ affinity: 15, trust: 35, feeling: "complice", facts: [{ content: "Joue à CS2." }] });
+    // Each change is at most a 0.5 step, and a day moves by 1 at most.
+    expect(tom).toMatchObject({ affinity: 1, trust: 24, feeling: "complice", facts: [{ content: "Joue à CS2." }] });
     expect(profiles.find((p) => p.id === "3")).toMatchObject({ affinity: null, facts: [] });
     expect(profiles).toHaveLength(2);
     const [row] = await db.select().from(relationships);
     expect(row).toMatchObject({ howTheyTreatMe: "gentil", introducedAt: null });
-    expect(await db.select().from(relationshipEvents)).toHaveLength(3);
+    expect(await db.select().from(relationshipEvents)).toHaveLength(2);
 
     // A day later the budget is back.
     await applyAnalysis(db, write({ relationships: [relation()], at: at(24 * 60 + 1) }));
-    expect((await participantProfiles(db, ["1"], 5))[0]?.affinity).toBe(20);
-    expect((await relationshipEventsSince(db, at(0), 10))[0]).toMatchObject({ memberName: "tom", affinityDelta: 5 });
+    expect((await participantProfiles(db, ["1"], 5))[0]?.affinity).toBe(1.5);
+    expect((await relationshipEventsSince(db, at(0), 10))[0]).toMatchObject({ memberName: "tom", affinityDelta: 0.5 });
   });
 
   it("lets a member take facts off their own profile only, and remembers why", async () => {
@@ -273,8 +274,9 @@ describe.skipIf(!url)("learning repositories", () => {
     expect(await aiCostSince(db, ["analysis"], at(0))).toBeCloseTo(0.002);
     expect(await aiCostSince(db, ["reflection"], at(0))).toBe(0);
 
-    expect(await purgeMessages(db, at(2))).toBe(2);
-    expect(await existingMessageIds(db, ["m1", "m3"])).toEqual(new Set(["m3"]));
+    // m1 is the source of a fragment: it stays.
+    expect(await purgeMessages(db, at(2))).toBe(1);
+    expect(await existingMessageIds(db, ["m1", "m3"])).toEqual(new Set(["m1", "m3"]));
 
     await notify(db, { type: "test" });
 

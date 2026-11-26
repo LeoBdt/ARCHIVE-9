@@ -9,8 +9,8 @@ import { when } from "../format.ts";
 
 type Person = RelationsData["people"][number];
 
-/** Affinity brought to 0–100, averaged with trust. */
-export const closeness = (p: { affinity: number; trust: number }) => Math.round(((p.affinity + 100) / 2 + p.trust) / 2);
+/** 0 to 100: affinity (−50…50) and trust (0…50) put on the same footing. */
+export const closeness = (p: { affinity: number; trust: number }) => Math.round((p.affinity + 50 + p.trust * 2) / 2);
 const MEDALS = ["var(--gold)", "var(--silver)", "var(--bronze)"];
 
 function Medal({ rank, size = 16 }: { rank: number; size?: number }) {
@@ -29,7 +29,7 @@ function RelationMap({ people, ranked }: { people: Person[]; ranked: Person[] })
       <div className="map-y" aria-hidden="true">
         <span>0</span>
         <b>CONFIANCE ↑</b>
-        <span>100</span>
+        <span>50</span>
       </div>
       <div className="map" role="group" aria-label="Carte : affinité à l'horizontale, confiance à la verticale">
         <div className="map-axis-x" />
@@ -45,7 +45,7 @@ function RelationMap({ people, ranked }: { people: Person[]; ranked: Person[] })
               key={p.id}
               type="button"
               className="map-dot"
-              style={{ left: `${String((p.affinity + 100) / 2)}%`, top: `${String(100 - p.trust)}%` }}
+              style={{ left: `${String(p.affinity + 50)}%`, top: `${String(100 - p.trust * 2)}%` }}
               aria-label={`${p.name} : affinité ${signed(p.affinity)}, confiance ${String(p.trust)}`}
               onPointerEnter={() => {
                 setHover(p);
@@ -60,7 +60,7 @@ function RelationMap({ people, ranked }: { people: Person[]; ranked: Person[] })
                 setHover(null);
               }}
               onClick={() => {
-                void navigate(`/archives/${p.id}`);
+                void navigate(`/dossiers/${p.id}`);
               }}
             >
               <Avatar id={p.id} name={p.name} hash={p.avatar} size={30} />
@@ -69,17 +69,17 @@ function RelationMap({ people, ranked }: { people: Person[]; ranked: Person[] })
           );
         })}
         {hover && (
-          <div className="tip" style={{ left: `clamp(0px, calc(${String((hover.affinity + 100) / 2)}% + 20px), calc(100% - 220px))`, top: `calc(${String(100 - hover.trust)}% - 14px)` }}>
+          <div className="tip" style={{ left: `clamp(0px, calc(${String(hover.affinity + 50)}% + 20px), calc(100% - 220px))`, top: `calc(${String(100 - hover.trust * 2)}% - 14px)` }}>
             <b>{hover.name}</b> · <span style={{ color: "var(--red-soft)" }}>aff. {signed(hover.affinity)}</span> · <span style={{ color: "var(--blue)" }}>conf. {hover.trust}</span>
           </div>
         )}
       </div>
       <span />
       <div className="map-x" aria-hidden="true">
-        <span>−100</span>
+        <span>−50</span>
         <span>0</span>
         <b>AFFINITÉ →</b>
-        <span>+100</span>
+        <span>+50</span>
       </div>
     </div>
   );
@@ -109,7 +109,7 @@ export function Relations() {
       {ranked.length > 0 && (
         <section aria-label="Mes trois plus proches" className="podium">
           {ranked.slice(0, 3).map((p, i) => (
-            <Link key={p.id} to={`/archives/${p.id}`} className="card px-dim podium-card appear" style={{ animationDelay: `${String(i * 0.08)}s` }}>
+            <Link key={p.id} to={`/dossiers/${p.id}`} className="card px-dim podium-card appear" style={{ animationDelay: `${String(i * 0.08)}s` }}>
               <span className="podium-pic">
                 <Avatar id={p.id} name={p.name} hash={p.avatar} size={52} />
                 <Medal rank={i} size={22} />
@@ -167,7 +167,7 @@ export function Relations() {
                         ) : (
                           <span className="meta">sans message précis</span>
                         )}
-                        <Link className="button-ghost small" to={`/archives/${m.memberId}`}>
+                        <Link className="button-ghost small" to={`/dossiers/${m.memberId}`}>
                           Son dossier
                         </Link>
                       </div>
@@ -198,7 +198,7 @@ export function Relations() {
               <tr key={p.id}>
                 <td>{p.isBot ? "bot" : i < 3 ? <Medal rank={i} /> : i + 1}</td>
                 <td>
-                  <Link to={`/archives/${p.id}`}>{p.name}</Link>
+                  <Link to={`/dossiers/${p.id}`}>{p.name}</Link>
                 </td>
                 <td style={{ color: "var(--red-soft)" }}>{signed(p.affinity)}</td>
                 <td style={{ color: "var(--blue)" }}>{p.trust}</td>

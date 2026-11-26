@@ -20,6 +20,10 @@ export interface BotSettings {
   botVersion: { label: string; startedAt: string } | null;
   /** The server's text channels, published by the bot so the site can name them. */
   channelDirectory: { id: string; name: string; category: string | null; isPublic?: boolean }[];
+  /** The tidy only proposes merges and deletions; an admin applies them from the site. */
+  tidyDryRun: boolean;
+  /** The face its Discord avatar shows now. */
+  avatarFace: string | null;
 }
 
 const KEYS = {
@@ -33,6 +37,8 @@ const KEYS = {
   reflectionHours: "reflection_hours",
   botVersion: "bot_version",
   channelDirectory: "channel_directory",
+  tidyDryRun: "tidy_dry_run",
+  avatarFace: "avatar_face",
 } as const satisfies Record<keyof BotSettings, string>;
 
 export const DEFAULT_SETTINGS: BotSettings = {
@@ -46,6 +52,8 @@ export const DEFAULT_SETTINGS: BotSettings = {
   reflectionHours: DEFAULT_REFLECTION_HOURS,
   botVersion: null,
   channelDirectory: [],
+  tidyDryRun: true,
+  avatarFace: null,
 };
 
 /** Reads all settings, writing `seed` values for any key that was never set. */

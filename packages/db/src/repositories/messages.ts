@@ -1,5 +1,5 @@
 import type { MessageReactions, TranscriptMessage } from "@archive-9/core";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, max, min, ne, notInArray, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, max, min, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client.ts";
 import { members, messages } from "../schema.ts";
@@ -93,6 +93,7 @@ async function selectStored(
       replyToDisplayName: repliedAuthor.displayName,
       mentionedIds: messages.mentionedIds,
       reactions: messages.reactions,
+      images: sql<string[] | null>`(select array_agg(i.description order by i.id) from message_images i where i.message_id = ${messages.id} and i.description is not null)`,
       createdAt: messages.createdAt,
     })
     .from(messages)
@@ -116,6 +117,7 @@ async function selectStored(
     replyToIsSelf: row.replyToAuthorId === selfId,
     mentionedIds: row.mentionedIds,
     reactions: row.reactions,
+    images: row.images ?? [],
     createdAt: row.createdAt,
   }));
   return order === "desc" ? result.reverse() : result;
@@ -205,9 +207,18 @@ export async function markAnalysed(db: Database, ids: string[]): Promise<void> {
   }
 }
 
-/** Deletes raw messages older than `before`. Profiles are kept. */
+/** Deletes raw messages older than `before`, except those a fragment or a relation change cites. */
 export async function purgeMessages(db: Database, before: Date): Promise<number> {
-  const rows = await db.delete(messages).where(lt(messages.createdAt, before)).returning({ id: messages.id });
+  const rows = await db
+    .delete(messages)
+    .where(
+      and(
+        lt(messages.createdAt, before),
+        sql`not exists (select 1 from profile_facts f where f.source_message_ids @> array[${messages.id}])`,
+        sql`not exists (select 1 from relationship_events e where e.source_message_id = ${messages.id})`,
+      ),
+    )
+    .returning({ id: messages.id });
   return rows.length;
 }
 

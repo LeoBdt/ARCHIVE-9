@@ -1,9 +1,10 @@
-import { AiRuntime, buildBio, createModelResolver } from "@archive-9/ai";
+import { AiRuntime, buildBio, createModelResolver, INITIAL_SELF_STATE } from "@archive-9/ai";
 import { versionLabel } from "@archive-9/core";
-import { createDb, ensureServerProfile, ensureWebRole, ping, runMigrations, setInGuild, syncGuildMembers, type MemberInput } from "@archive-9/db";
+import { createDb, currentSelfState, ensureServerProfile, ensureVectorStore, ensureWebRole, pendingImages, ping, runMigrations, setInGuild, syncGuildMembers, type MemberInput } from "@archive-9/db";
+import type { MoodIcon } from "@archive-9/core";
 import { Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, type Guild, type GuildMember, type PartialGuildMember } from "discord.js";
 import { COMMANDS, handleInteraction } from "./commands.ts";
-import { parseEnv } from "./env.ts";
+import { parseEnv, routesFrom } from "./env.ts";
 import { startHealthServer } from "./health.ts";
 import { Ingest } from "./ingest.ts";
 import { startLearningJobs } from "./learning/jobs.ts";
@@ -13,6 +14,8 @@ import { Presence } from "./presence.ts";
 import { recordRelease } from "./releases.ts";
 import { startRequestWorker } from "./requests.ts";
 import { SettingsStore } from "./settings.ts";
+import { showFace } from "./discord/avatar.ts";
+import { describePending } from "./vision.ts";
 
 const env = parseEnv();
 const log = createLogger(env.LOG_LEVEL);
@@ -24,6 +27,13 @@ await runMigrations(env.DATABASE_URL);
 log.info("migrations applied");
 
 const { db, client: sqlClient, close: closeDb } = createDb(env.DATABASE_URL);
+// The search index needs pgvector; without it, search stays by words.
+const vectors = await ensureVectorStore(sqlClient).catch((err: unknown) => {
+  log.warn({ err }, "vector index unavailable");
+  return false;
+});
+log.info({ vectors }, vectors ? "vector index ready" : "no pgvector: search by words only");
+const embedding = vectors ? { apiKey: env.OPENROUTER_API_KEY, model: env.EMBEDDING_MODEL } : undefined;
 if (env.WEB_DB_PASSWORD) {
   await ensureWebRole(sqlClient, env.WEB_DB_PASSWORD);
   log.info("site database user ready");
@@ -33,18 +43,15 @@ await settings.set("botVersion", { label: version, startedAt: startedAt.toISOStr
 const knownAiBotIds = new Set(env.KNOWN_AI_BOT_IDS);
 
 const ai = new AiRuntime(
-  {
-    triage: env.AI_ROUTE_TRIAGE,
-    reply: env.AI_ROUTE_REPLY,
-    analysis: env.AI_ROUTE_ANALYSIS,
-    reflection: env.AI_ROUTE_REFLECTION,
-  },
+  routesFrom(env),
   createModelResolver({
     openrouterApiKey: env.OPENROUTER_API_KEY,
     groqApiKey: env.GROQ_API_KEY,
     openrouterProviderOrder: env.OPENROUTER_PROVIDER_ORDER,
   }),
 );
+
+const vision = { db, ai, log, dailyBudgetUsd: env.VISION_DAILY_BUDGET_USD };
 
 const discord = new Client({
   intents: [
@@ -89,6 +96,8 @@ discord.once(Events.ClientReady, (client) => {
     version,
     startedAt,
     siteUrl: env.SITE_URL ?? null,
+    vision,
+    embedding,
   });
   presence.start(client);
   safely("bio", async () => {
@@ -98,6 +107,12 @@ discord.once(Events.ClientReady, (client) => {
     await client.application.edit({ description: bio });
     log.info("bio updated");
   });
+  const face = async (icon: MoodIcon) => {
+    if (settings.value.avatarFace === icon) return;
+    await showFace(client.user, icon);
+    await settings.set("avatarFace", icon, null);
+    log.info({ face: icon }, "avatar and banner updated");
+  };
   const learning = {
     db,
     client: sqlClient,
@@ -110,11 +125,22 @@ discord.once(Events.ClientReady, (client) => {
       return channel && "name" in channel ? channel.name : null;
     },
     server,
+    tidyDryRun: () => settings.value.tidyDryRun,
+    seeImages: async (messageIds: string[]) => {
+      await describePending(vision, await pendingImages(db, { messageIds }, 40));
+    },
+    onFace: face,
   };
+  // The face on Discord follows the current mood, from the start.
+  safely("avatar", async () => {
+    const icon = (await currentSelfState(db, INITIAL_SELF_STATE)).icon;
+    if (icon) await face(icon);
+  });
   stopJobs ??= startLearningJobs(learning, {
     analysisDailyBudgetUsd: env.ANALYSIS_DAILY_BUDGET_USD,
     reflectionHours: () => settings.value.reflectionHours,
     retentionDays: env.MESSAGE_RETENTION_DAYS,
+    embedding,
   });
   stopRequests ??= startRequestWorker({ ...learning, settings });
   safely("release", () => recordRelease({ db, ai, log, repo: env.GITHUB_REPO, sha: env.GIT_SHA }));

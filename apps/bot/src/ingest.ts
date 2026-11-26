@@ -1,10 +1,13 @@
 import type { MessageReactions } from "@archive-9/core";
 import {
   deleteMessages,
+  dmPrivateIds,
   ensureMember,
   optedOutIds,
+  saveImages,
   saveMessage,
   setMessageReactions,
+  type ImageInput,
   updateMessageContent,
   upsertMember,
   type Database,
@@ -36,7 +39,29 @@ function reactionCounts(message: Message | PartialMessage): MessageReactions {
   return counts;
 }
 
-/** Stores messages from listened channels and DMs, except from opted-out members. */
+/** Pictures and GIFs of a message: attachments, and the previews Discord makes for links (Tenor, Giphy…). */
+export function imagesOf(message: Message | PartialMessage): ImageInput[] {
+  const images: ImageInput[] = [];
+  for (const a of message.attachments.values()) {
+    if (!a.contentType?.startsWith("image/")) continue;
+    images.push({ id: a.id, messageId: message.id, url: a.url, kind: a.contentType === "image/gif" ? "gif" : "image", name: a.name });
+  }
+  message.embeds.forEach((embed, i) => {
+    const url = embed.thumbnail?.proxyURL ?? embed.thumbnail?.url ?? embed.image?.proxyURL ?? embed.image?.url;
+    if (!url || !["gifv", "image", "rich", "article"].includes(embed.data.type ?? "")) return;
+    images.push({ id: `${message.id}:${String(i)}`, messageId: message.id, url, kind: "embed", name: embed.provider?.name ?? embed.title ?? null });
+  });
+  return images.slice(0, 4);
+}
+
+/** Whose DM conversation this is (the other person when ARCHIVE-9 wrote it), or null outside DMs. */
+function dmOwner(message: Message | PartialMessage): string | null {
+  if (message.guildId !== null) return null;
+  if (message.author?.id !== message.client.user.id) return message.author?.id ?? null;
+  return "recipientId" in message.channel ? message.channel.recipientId : null;
+}
+
+/** Stores messages from listened channels and DMs, except from opted-out members and private DMs. */
 export class Ingest {
   private readonly deps: IngestDeps;
 
@@ -50,6 +75,8 @@ export class Ingest {
     // Command answers (/mondossier…) are system text, sometimes private to one member.
     if (message.flags.has(MessageFlags.Ephemeral) || message.interactionMetadata) return;
     if ((await optedOutIds(db, [message.author.id])).has(message.author.id)) return;
+    const owner = dmOwner(message);
+    if (owner && (await dmPrivateIds(db, [owner])).has(owner)) return;
 
     const member = {
       id: message.author.id,
@@ -72,11 +99,14 @@ export class Ingest {
       mentionedIds: [...message.mentions.users.keys()],
       createdAt: message.createdAt,
     });
+    await saveImages(db, imagesOf(message));
   }
 
   async onUpdate(message: Message | PartialMessage): Promise<void> {
     if (!isArchived(this.deps.settings, message) || message.content === null) return;
     await updateMessageContent(this.deps.db, message.id, message.content, message.editedAt ?? new Date());
+    // Link previews arrive with an edit, a moment after the message.
+    if (message.embeds.length > 0) await saveImages(this.deps.db, imagesOf(message)).catch(() => undefined);
   }
 
   async onDelete(ids: string[]): Promise<void> {

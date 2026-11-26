@@ -115,8 +115,8 @@ export function Home({ viewer }: { viewer: Viewer }) {
         <section aria-labelledby="dossiers" className="home-dossiers">
           <div className="section-head">
             <h2 id="dossiers">Les dossiers que je consulte le plus</h2>
-            <Link to="/archives" style={{ fontSize: 14 }}>
-              Toutes les archives →
+            <Link to="/dossiers" style={{ fontSize: 14 }}>
+              Tous les dossiers →
             </Link>
           </div>
           {data.closest.length === 0 ? (
@@ -124,7 +124,7 @@ export function Home({ viewer }: { viewer: Viewer }) {
           ) : (
             <div className="grid three">
               {data.closest.map((m) => (
-                <Link key={m.id} to={`/archives/${m.id}`} className="card px-dim">
+                <Link key={m.id} to={`/dossiers/${m.id}`} className="card px-dim">
                   <div className="who">
                     <Avatar id={m.id} name={m.name} hash={m.avatar} />
                     <div>
@@ -136,7 +136,7 @@ export function Home({ viewer }: { viewer: Viewer }) {
                   <div className="bar">
                     <span>affinité</span>
                     <Segments lit={affinitySegments(m.affinity)} />
-                    <span className="sr-only">{`${String(m.affinity)} sur 100`}</span>
+                    <span className="sr-only">{`affinité ${String(m.affinity)}, de −50 à 50`}</span>
                   </div>
                 </Link>
               ))}

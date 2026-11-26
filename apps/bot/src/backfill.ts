@@ -30,7 +30,7 @@ import {
   type APIUser,
   type RESTGetAPIGuildThreadsResult,
 } from "discord.js";
-import { parseEnv } from "./env.ts";
+import { parseEnv, routesFrom } from "./env.ts";
 import { runAnalysis } from "./learning/analyse.ts";
 import { runAwakening } from "./learning/reflect.ts";
 import { estimateAnalysisCost } from "./learning/estimate.ts";
@@ -146,7 +146,7 @@ if (args["dry-run"] || maxCost === null) {
 }
 
 const ai = new AiRuntime(
-  { triage: env.AI_ROUTE_TRIAGE, reply: env.AI_ROUTE_REPLY, analysis: env.AI_ROUTE_ANALYSIS, reflection: env.AI_ROUTE_REFLECTION },
+  routesFrom(env),
   createModelResolver({
     openrouterApiKey: env.OPENROUTER_API_KEY,
     groqApiKey: env.GROQ_API_KEY,
@@ -193,6 +193,8 @@ const lock = await withAdvisoryLock(client, ANALYSIS_LOCK, async () => {
     timezone: env.BOT_TIMEZONE,
     channelName: (id: string) => channels.get(id) ?? null,
     server: { id: guild.id },
+    // Nothing is merged or deleted from a script: the bot's evening tidy does that.
+    tidyDryRun: () => true,
   };
   const report = await runAnalysis(
     deps,

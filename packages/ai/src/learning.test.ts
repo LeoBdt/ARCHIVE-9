@@ -9,7 +9,7 @@ import { buildSummaryPrompt, summarise } from "./summary.ts";
 import { mockModel, mockResolver, mockResult, text } from "./test-utils.ts";
 
 const chain = parseRoute("openrouter:main");
-const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain };
+const routes: Routes = { triage: chain, reply: chain, analysis: chain, reflection: chain, vision: chain, embedding: chain };
 const runtime = (output: unknown) =>
   new AiRuntime(routes, mockResolver({ "openrouter:main": mockModel(mockResult(text(typeof output === "string" ? output : JSON.stringify(output)))) }));
 
@@ -79,7 +79,7 @@ describe("buildAnalysisPrompt", () => {
   it("lists participants with fact references and marks the context", () => {
     const prompt = buildAnalysisPrompt(input);
     expect(prompt).toContain("ARCHIVE-9 a l'ID 9.");
-    expect(prompt).toContain("- Tom (ID 1) · affinité 20/100, confiance 60/100, ressenti : complice");
+    expect(prompt).toContain("- Tom (ID 1) · affinité 20 (de -50 à 50), confiance 60 (de 0 à 50), ressenti : complice");
     expect(prompt).toContain("F1 · games · fait · 0.9 · Joue à Valorant.");
     expect(prompt).toContain("F2 · identity · fait · 0.8 · A 24 ans.");
     expect(prompt).toContain("- Léa (ID 2) · aucune relation");
@@ -216,7 +216,7 @@ describe("sanitiseAnalysis", () => {
     );
     expect(result.retractions).toEqual([{ factId: "uuid-b", memberId: "2" }]);
     expect(result.relationships).toEqual([
-      { memberId: "1", affinityDelta: 5, trustDelta: -2, reason: "sans précision", sourceMessageId: "11", feeling: null, howTheyTreatMe: "Me parle comme à un pote." },
+      { memberId: "1", affinityDelta: 0.5, trustDelta: -0.5, reason: "sans précision", sourceMessageId: "11", feeling: null, howTheyTreatMe: "Me parle comme à un pote." },
       { memberId: "2", affinityDelta: 0, trustDelta: 0, reason: "ok", sourceMessageId: null, feeling: "méfiant", howTheyTreatMe: null },
     ]);
   });
@@ -299,7 +299,7 @@ describe("reflect", () => {
       feedback: [{ name: "Léa", trust: 70, content: "Trop agressif." }, { name: "Max", trust: null, content: "Tais-toi." }],
     });
     expect(prompt).toContain("Résolutions :\n1. je pique moins");
-    expect(prompt).toContain("1. Léa (ta confiance : 70/100) : Trop agressif.");
+    expect(prompt).toContain("1. Léa (ta confiance : 70/50) : Trop agressif.");
     expect(prompt).toContain("2. Max (ta confiance : inconnue) : Tais-toi.");
     expect(buildReflectionPrompt(reflection)).toContain("## Les retours qu'on t'a faits sur ta façon d'être\n(aucun)");
   });

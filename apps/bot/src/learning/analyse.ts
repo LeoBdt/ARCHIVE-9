@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { analyse, summarise, type AiRuntime, type AnalysisConversation, type UsageRecord } from "@archive-9/ai";
-import { CONVERSATION_GAP_MS, groupConversations, packConversations, readyConversations } from "@archive-9/core";
+import { CONVERSATION_GAP_MS, groupConversations, packConversations, readyConversations, type MoodIcon } from "@archive-9/core";
 import {
   applyAnalysis,
   contextBefore,
   currentFacts,
   deleteSummary,
+  imagesByMessage,
   listCategories,
   memberContexts,
   notify,
@@ -27,6 +28,12 @@ export interface LearningDeps {
   timezone: string;
   channelName: (channelId: string) => string | null;
   server: ServerSource;
+  /** Read at each use: the site can change it. */
+  tidyDryRun: () => boolean;
+  /** Looks at the images of these messages that it hasn't seen yet. */
+  seeImages?: (messageIds: string[]) => Promise<void>;
+  /** Shows the face of its new mood on Discord. */
+  onFace?: (face: MoodIcon) => Promise<void>;
 }
 
 export interface AnalysisOptions {
@@ -52,7 +59,8 @@ export interface AnalysisReport {
 const BATCH_MESSAGES = 120;
 const PASS_MESSAGES = 600;
 const CONTEXT_MESSAGES = 6;
-const FACTS_IN_PROMPT = 20;
+// Enough of each dossier for the analysis to see what it already knows and not repeat it.
+const FACTS_IN_PROMPT = 40;
 const FACTS_IN_SUMMARY = 60;
 /** Long runs (backfill) refresh summaries along the way, so an interruption loses nothing. */
 const SUMMARIES_EVERY = 15;
@@ -89,7 +97,7 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
   const report: AnalysisReport = { batches: 0, messages: 0, facts: 0, summaries: 0, costUsd: 0, failed: false, budgetReached: false };
   const touched = new Set<string>();
   const server = await loadServerContext(db, deps.server);
-  const categories = (await listCategories(db)).map(({ key, label, color }) => ({ key, label, color }));
+  const drawers = await listCategories(db, "all");
 
   analysis: for (;;) {
     const now = new Date();
@@ -100,6 +108,14 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
       if (report.costUsd >= options.budgetUsd) {
         report.budgetReached = true;
         break analysis;
+      }
+      const batchIds = batch.flat().map((m) => m.id);
+      if (deps.seeImages) {
+        await deps.seeImages(batchIds).catch((err: unknown) => {
+          log.warn({ err }, "images not seen");
+        });
+        const images = await imagesByMessage(db, batchIds);
+        for (const m of batch.flat()) m.images = images.get(m.id) ?? [];
       }
       const conversations: AnalysisConversation[] = await Promise.all(
         batch.flatMap((messages) => (messages[0] ? [{ first: messages[0], messages }] : [])).map(async ({ first, messages }) => {
@@ -122,6 +138,8 @@ export async function runAnalysis(deps: LearningDeps, options: AnalysisOptions):
       const participants = (await participantProfiles(db, ids, FACTS_IN_PROMPT)).filter(
         (p) => !p.isBot || p.isKnownAiBot,
       );
+      const present = new Set(participants.map((p) => p.id));
+      const categories = drawers.filter((d) => d.memberId === null || present.has(d.memberId)).map(({ key, label, color, memberId }) => ({ key, label, color, memberId }));
       const outcome = await analyse(ai, { selfId, timezone: deps.timezone, server, participants, conversations, categories });
       const messageIds = batch.flat().map((m) => m.id);
       report.costUsd += costOf(outcome.usage);

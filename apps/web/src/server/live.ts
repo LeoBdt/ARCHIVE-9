@@ -15,6 +15,8 @@ export const LIVE_TYPES = new Set([
   "site_requests",
   "releases",
   "fact_categories",
+  "fact_operations",
+  "capability_gaps",
 ]);
 
 export interface Live {

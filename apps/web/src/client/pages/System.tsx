@@ -143,7 +143,7 @@ function Costs({ data }: { data: SystemView }) {
             <ul className="plain stack-8">
               {people.map((p) => (
                 <li key={p.id} className="cost-row">
-                  <Link to={`/archives/${p.id}`} className="who-link">
+                  <Link to={`/dossiers/${p.id}`} className="who-link">
                     <Avatar id={p.id} name={p.name} hash={p.avatar} size={24} />
                     <span>{p.name}</span>
                   </Link>
@@ -265,7 +265,7 @@ export function System() {
   const [core, corePrevious] = data.releases.core;
   const [site, sitePrevious] = data.releases.site;
   return (
-    <main className="page">
+    <main className="page cascade">
       <h1 className="page-title">Système</h1>
       <Tabs
         label="Système"

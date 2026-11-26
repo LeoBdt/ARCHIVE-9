@@ -9,7 +9,7 @@ describe("client helpers", () => {
   });
 
   it("maps affinity to ten segments", () => {
-    expect([-100, 0, 42, 100].map(affinitySegments)).toEqual([0, 5, 7, 10]);
+    expect([-50, 0, 21, 50].map(affinitySegments)).toEqual([0, 5, 7, 10]);
   });
 
   it("keeps a member's color", () => {

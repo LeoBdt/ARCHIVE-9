@@ -28,6 +28,7 @@ export const DEFAULT_ROUTES = {
   reply: "openrouter:deepseek/deepseek-v4.1-flash,groq:openai/gpt-oss-120b",
   analysis: "openrouter:deepseek/deepseek-v4.1-flash",
   reflection: "openrouter:deepseek/deepseek-v4.1-flash",
+  vision: "openrouter:deepseek/deepseek-v4.1-flash,groq:meta-llama/llama-4-scout-17b-16e-instruct",
 };
 
 const schema = z.object({
@@ -56,8 +57,13 @@ const schema = z.object({
   AI_ROUTE_REPLY: route(DEFAULT_ROUTES.reply),
   AI_ROUTE_ANALYSIS: route(DEFAULT_ROUTES.analysis),
   AI_ROUTE_REFLECTION: route(DEFAULT_ROUTES.reflection),
+  AI_ROUTE_VISION: route(DEFAULT_ROUTES.vision),
+  /** OpenRouter embeddings model for the search index (1024 dimensions). */
+  EMBEDDING_MODEL: z.string().default("baai/bge-m3"),
 
   ANALYSIS_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
+  /** Looking at images, over 24 h. */
+  VISION_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(0.1),
   /** Past this over 24 h, only humans who mention or reply get an answer, from free models. */
   REPLY_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(1),
   /** Password of the site's read-mostly Postgres user, created by the bot. Unset: no site. */
@@ -70,6 +76,18 @@ const schema = z.object({
 });
 
 export type Env = z.infer<typeof schema>;
+
+/** Every task's chain. Embeddings go through their own client, so they share the analysis entry here. */
+export function routesFrom(env: Env) {
+  return {
+    triage: env.AI_ROUTE_TRIAGE,
+    reply: env.AI_ROUTE_REPLY,
+    analysis: env.AI_ROUTE_ANALYSIS,
+    reflection: env.AI_ROUTE_REFLECTION,
+    vision: env.AI_ROUTE_VISION,
+    embedding: env.AI_ROUTE_ANALYSIS,
+  };
+}
 
 export function parseEnv(source: Record<string, string | undefined> = process.env): Env {
   const result = schema.safeParse(source);

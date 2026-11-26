@@ -9,7 +9,7 @@ export function SourceSheet({ messageId, title, onClose }: { messageId: string; 
   return (
     <Sheet title={title} onClose={onClose}>
       {isPending && <p className="empty">Je cherche dans mes archives…</p>}
-      {data && !data.found && <p className="empty">Ce message n'est plus dans mes archives (je garde les messages 30 jours).</p>}
+      {data && !data.found && <p className="empty">Ce message n'est plus dans mes archives : je garde 30 jours ceux qui ne sont la source d'aucun fragment.</p>}
       {data?.found && (
         <>
           <div className="meta strong">

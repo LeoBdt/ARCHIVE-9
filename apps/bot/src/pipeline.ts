@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import {
   INITIAL_SELF_STATE,
   pickOfflineLine,
+  embedTexts,
   reply,
   shortModelName,
   triage,
   type AiRuntime,
+  type EmbeddingConfig,
   type Participant,
   type UsageRecord,
 } from "@archive-9/ai";
@@ -25,6 +27,12 @@ import {
 import {
   activeSkills,
   aiCostSince,
+  claimDmNotice,
+  dmPrivateIds,
+  imagesByMessage,
+  pendingImages,
+  similarFacts,
+  vectorStoreReady,
   currentSelfState,
   lastMessageAt,
   memberContexts,
@@ -52,6 +60,8 @@ import { loadServerContext, type ServerSource } from "./learning/server.ts";
 import type { Logger } from "./logger.ts";
 import type { SettingsStore } from "./settings.ts";
 import { createReplyTools } from "./tools/index.ts";
+import { imagesOf } from "./ingest.ts";
+import { describeImage, describePending, visionAllowed, type VisionDeps } from "./vision.ts";
 
 export interface PipelineDeps {
   db: Database;
@@ -71,6 +81,8 @@ export interface PipelineDeps {
   startedAt: Date;
   /** The site's public address, given to the model so it links it in full. */
   siteUrl: string | null;
+  vision: VisionDeps;
+  embedding?: EmbeddingConfig;
 }
 
 type TriageDetails = NonNullable<DecisionDetails["triage"]>;
@@ -85,6 +97,13 @@ const DIRECTORY_TTL_MS = 10 * 60_000;
 /** People tagged or named in the conversation whose profile is added to the reply prompt. */
 const MAX_MENTIONED = 5;
 const DAY_MS = 24 * 60 * 60_000;
+/** Images of the last half hour in the channel are looked at before replying. */
+const FRESH_IMAGES_MS = 30 * 60_000;
+const FRESH_IMAGES = 4;
+/** Fragments recalled by meaning, on top of the dossier summaries. */
+const RECALLED = 6;
+/** Said once, in each person's first DM. */
+export const DM_NOTICE = "-# Nos MP sont archivés comme le reste : j'en tire des fragments, visibles sur mon site. `/mp-prives` pour les garder hors de ma mémoire.";
 
 interface Directory {
   loadedAt: number;
@@ -152,7 +171,7 @@ export function describeRun(
   const context: string[] = [];
   const author = ctx.participants.find((p) => p.id === ctx.authorId);
   if (author) {
-    const relation = author.affinity === null ? "aucune relation encore" : `affinité ${String(author.affinity)}, confiance ${String(author.trust ?? 50)}${author.feeling ? `, « ${author.feeling} »` : ""}`;
+    const relation = author.affinity === null ? "aucune relation encore" : `affinité ${String(author.affinity)}, confiance ${String(author.trust ?? 25)}${author.feeling ? `, « ${author.feeling} »` : ""}`;
     context.push(`${author.name} : ${relation}`);
     if (author.preferences?.length) context.push(`Ses préférences : ${author.preferences.join(" ; ")}`);
   }
@@ -440,10 +459,16 @@ export class Pipeline {
           return false;
         }
       }
+      const dmPrivate = isDm && (await dmPrivateIds(db, [target.author.id])).has(target.author.id);
+      const seen = await this.see(target, dmPrivate);
       const history = isDm
         ? [...(await target.channel.messages.fetch({ limit: REPLY_WINDOW })).values()].map((m) => toTranscript(m, selfId))
         : await recentMessages(db, target.channelId, selfId, REPLY_WINDOW);
       if (!history.some((m) => m.id === target.id)) history.push(toTranscript(target, selfId));
+      if (isDm) {
+        const images = await imagesByMessage(db, history.map((m) => m.id));
+        for (const m of history) m.images = images.get(m.id) ?? (m.id === target.id ? seen : []);
+      }
 
       const directory = await this.directory();
       const participants = await this.participants(history, target, directory);
@@ -451,6 +476,8 @@ export class Pipeline {
       const selfState = await currentSelfState(db, INITIAL_SELF_STATE);
       const send: SendState = { sentMessageIds: [], reacted: false, silenced: false };
       const skills = selectSkills(await activeSkills(db), target.content, { channelId: target.channelId, parentId: parentIdOf(target), authorId: target.author.id });
+      const recalled = await this.recall(target, participants.map((p) => p.id), run.runId);
+      const notice = isDm && !dmPrivate && !target.author.bot && run.addressed && (await claimDmNotice(db, target.author.id));
       const outcome = await reply(
         ai,
         {
@@ -478,9 +505,16 @@ export class Pipeline {
           })),
           version: { label: this.deps.version, since: this.deps.startedAt },
           siteUrl: this.deps.siteUrl,
+          recalled,
+          dmPrivate,
         },
         (ref, isFallback) => ({
-          ...createSendTools(channel, target, send, isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : undefined),
+          ...createSendTools(
+            channel,
+            target,
+            send,
+            [isFallback && settings.value.showFallbackTag ? `-# noyau-${shortModelName(ref)}` : "", notice ? DM_NOTICE : ""].filter(Boolean).join("\n") || undefined,
+          ),
           ...createReplyTools({
             db,
             ai,
@@ -498,6 +532,7 @@ export class Pipeline {
             directory: directory.byId,
             findMembers: directory.find,
             saveUsage: (usage, detail) => this.saveUsage(run.runId, usage, { detail }),
+            embedding: this.deps.embedding,
           }),
         }),
         { freeOnly: overBudget },
@@ -516,7 +551,7 @@ export class Pipeline {
       // Safety net: when addressed, text written outside the tools is still what it meant to say.
       const strayText = outcome.result.text.trim();
       if (run.addressed && strayText && send.sentMessageIds.length === 0 && !send.silenced) {
-        const tag = outcome.isFallback && settings.value.showFallbackTag ? `\n-# noyau-${shortModelName(outcome.ref)}` : "";
+        const tag = [outcome.isFallback && settings.value.showFallbackTag ? `\n-# noyau-${shortModelName(outcome.ref)}` : "", notice ? `\n${DM_NOTICE}` : ""].join("");
         const sent = await target.reply(`${cleanOutgoing(strayText).slice(0, 2000 - tag.length)}${tag}`);
         send.sentMessageIds.push(sent.id);
       }
@@ -552,6 +587,7 @@ export class Pipeline {
           freeOnly: overBudget,
         }),
         memory: { messages: elsewhere.reduce((n, p) => n + p.messages.length, 0), places: elsewhere.map((p) => p.where), mood: selfState.mood },
+        ...(dmPrivate ? { private: true } : {}),
         },
       });
       log.info(
@@ -585,6 +621,40 @@ export class Pipeline {
     recordDecision(this.deps.db, input).catch((err: unknown) => {
       this.deps.log.warn({ err }, "could not record decision");
     });
+  }
+
+  /**
+   * Looks at the images posted in the channel in the last half hour that it hasn't seen yet.
+   * A private DM isn't stored: its images are looked at on the spot and returned, never kept.
+   */
+  private async see(target: Message, dmPrivate: boolean): Promise<string[]> {
+    const { vision } = this.deps;
+    try {
+      if (dmPrivate) {
+        const images = imagesOf(target);
+        if (images.length === 0 || !(await visionAllowed(vision))) return [];
+        const seen = await Promise.all(images.map((i) => describeImage(vision, { ...i, content: target.content }, false)));
+        return seen.filter((d): d is string => Boolean(d));
+      }
+      const pending = await pendingImages(this.deps.db, { channelId: target.channelId, since: new Date(Date.now() - FRESH_IMAGES_MS) }, FRESH_IMAGES);
+      if (pending.length) await describePending(vision, pending);
+    } catch (err) {
+      this.deps.log.warn({ err }, "images not seen");
+    }
+    return [];
+  }
+
+  /** Fragments of the people here that are closest in meaning to the message, old ones included. */
+  private async recall(target: Message, peopleIds: string[], runId: string) {
+    const { embedding, db } = this.deps;
+    const text = target.content.trim();
+    if (!embedding || text.length < 12 || peopleIds.length === 0 || !(await vectorStoreReady(db))) return [];
+    const outcome = await embedTexts(embedding, [text]);
+    await this.saveUsage(runId, [outcome.usage], { detail: "souvenirs par le sens" });
+    const vector = outcome.vectors?.[0];
+    if (!vector) return [];
+    const facts = await similarFacts(db, vector, { memberIds: peopleIds, limit: RECALLED, min: 0.55 });
+    return facts.map((f) => ({ id: f.ref, who: f.memberName, nature: f.nature, confidence: f.confidence, content: f.content }));
   }
 
   /** Short memory: what the target author said lately outside this conversation. */
